@@ -8,15 +8,22 @@ from .config import Settings
 from .media import MediaError, probe, duration_seconds, make_video_note, make_image_video_note, make_voice
 from .utils import new_job_dir, cleanup, remove_file
 from .access import AccessManager
+from .content import BotContent
 from .transcribe import transcribe
 
 router = Router()
 settings: Settings | None = None
 access: AccessManager | None = None
+content: BotContent | None = None
+admin_edit_state: dict[int, str] = {}
 photo_duration: dict[int, int] = {}
 quality: dict[int, str] = {}
 selected_mode: dict[int, str] = {}
 
+
+
+def _allowed(user_id: int) -> bool:
+    return _allowed(user_id, content.public_access if content else False)
 
 
 def menu(user_id: int):
@@ -24,6 +31,7 @@ def menu(user_id: int):
         [KeyboardButton(text="🎥 Видео → кружок"), KeyboardButton(text="🖼 Фото → кружок")],
         [KeyboardButton(text="🎵 Аудио → голосовое"), KeyboardButton(text="📁 Файл → конвертация")],
         [KeyboardButton(text="📝 Расшифровка"), KeyboardButton(text="👤 Профиль")],
+        [KeyboardButton(text="ℹ️ О боте")],
         [KeyboardButton(text="⚙️ Настройки")],
     ]
     if access and access.admin(user_id):
@@ -53,6 +61,46 @@ def mode_prompt(user_id: int):
 
 def _selected(user_id: int, mode: str) -> bool:
     return selected_mode.get(user_id) == mode
+
+async def _admin_input(message: Message, bot=None):
+    if not access.admin(message.from_user.id):
+        return False
+    state = admin_edit_state.get(message.from_user.id)
+    if not state:
+        return False
+    uid = message.from_user.id
+    if state in ("ref_text", "bot_info_text"):
+        if not message.text:
+            await message.answer("✍️ Отправь обычный текст.")
+            return True
+        if state == "ref_text":
+            content.set_referral_text(message.text)
+            label = "рефералки"
+        else:
+            content.set_bot_info_text(message.text)
+            label = "информации о боте"
+        admin_edit_state.pop(uid, None)
+        await message.answer(f"✅ Текст {label} сохранён.", reply_markup=admin_menu())
+        return True
+    if state in ("ref_image", "bot_info_image"):
+        if not message.photo:
+            await message.answer("🖼 Отправь изображение именно как фото. Размер должен быть ровно 630×360.")
+            return True
+        photo = message.photo[-1]
+        if photo.width != 630 or photo.height != 360:
+            await message.answer(f"❌ Нужен размер 630×360. Сейчас: {photo.width}×{photo.height}.")
+            return True
+        if state == "ref_image":
+            content.set_referral_image(photo.file_id)
+            label = "рефералки"
+        else:
+            content.set_bot_info_image(photo.file_id)
+            label = "информации о боте"
+        admin_edit_state.pop(uid, None)
+        await message.answer(f"✅ Картинка {label} сохранена.", reply_markup=admin_menu())
+        return True
+    return False
+
 
 async def _mode_required(message: Message, mode: str) -> bool:
     if _selected(message.from_user.id, mode):
@@ -94,7 +142,11 @@ def settings_menu(user_id: int):
     ])
 
 def admin_menu():
+    public = content.public_access if content else False
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=("🌐 Закрыть для всех" if public else "🌐 Открыть для всех"), callback_data="admin_public_toggle")],
+        [InlineKeyboardButton(text="🤝 Реферальная программа", callback_data="admin_referral")],
+        [InlineKeyboardButton(text="ℹ️ Информация о боте", callback_data="admin_bot_info")],
         [InlineKeyboardButton(text="➕ Выдать доступ", callback_data="admin_add")],
         [InlineKeyboardButton(text="➖ Забрать доступ", callback_data="admin_remove")],
         [InlineKeyboardButton(text="🚫 Заблокировать", callback_data="admin_block")],
@@ -103,50 +155,78 @@ def admin_menu():
     ])
 
 
+@router.message(F.text | F.photo)
+async def admin_input_state_handler(message: Message, bot):
+    if await _admin_input(message, bot):
+        return
+
+
 @router.message(F.text == "🎥 Видео → кружок")
 async def select_video_mode(message: Message):
-    if access.allowed(message.from_user.id):
+    if _allowed(message.from_user.id):
         selected_mode[message.from_user.id] = "video"
         await message.answer("🎥 <b>Видео → кружок</b>\n\nТеперь отправь видео. Другие типы файлов не обрабатываются.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "🖼 Фото → кружок")
 async def select_photo_mode(message: Message):
-    if access.allowed(message.from_user.id):
+    if _allowed(message.from_user.id):
         selected_mode[message.from_user.id] = "photo"
         await message.answer("🖼 <b>Фото → кружок</b>\n\nТеперь отправь изображение. Другие типы файлов не обрабатываются.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "🎵 Аудио → голосовое")
 async def select_audio_mode(message: Message):
-    if access.allowed(message.from_user.id):
+    if _allowed(message.from_user.id):
         selected_mode[message.from_user.id] = "audio"
         await message.answer("🎵 <b>Аудио → голосовое</b>\n\nТеперь отправь аудио или музыку.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "📁 Файл → конвертация")
 async def select_file_mode(message: Message):
-    if access.allowed(message.from_user.id):
+    if _allowed(message.from_user.id):
         selected_mode[message.from_user.id] = "file"
         await message.answer("📁 <b>Файл → конвертация</b>\n\nТеперь отправь аудио или видео как файл.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "📝 Расшифровка")
 async def select_transcribe_mode(message: Message):
-    if access.allowed(message.from_user.id):
+    if _allowed(message.from_user.id):
         selected_mode[message.from_user.id] = "transcribe"
         await message.answer("📝 <b>Расшифровка</b>\n\nТеперь отправь голосовое, кружок, видео или аудио.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "👤 Профиль")
 async def profile(message: Message):
-    if not access.allowed(message.from_user.id):
+    if not _allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
     uid = message.from_user.id
     mode_labels = {"video":"🎥 Видео → кружок","photo":"🖼 Фото → кружок","audio":"🎵 Аудио → голосовое","file":"📁 Файл → конвертация","transcribe":"📝 Расшифровка"}
     mode = mode_labels.get(selected_mode.get(uid), "Не выбрана")
     q = {"economy":"Эконом","standard":"Стандарт","maximum":"Максимум"}.get(quality.get(uid, "maximum"), "Максимум")
     role = "👑 Администратор" if access.admin(uid) else "👤 Пользователь"
-    await message.answer(f"👤 <b>Профиль</b>\n\n🆔 ID: <code>{uid}</code>\n{role}\n\n🎯 Функция: <b>{mode}</b>\n🎚 Качество: <b>{q}</b>\n🧹 Автоудаление: <b>включено</b>", reply_markup=menu(uid))
+    me = await message.bot.get_me()
+    referral_link = f"https://t.me/{me.username}?start=ref_{uid}"
+    referrals = access.referral_count(uid)
+    await message.answer(
+        f"👤 <b>Профиль</b>\n\n🆔 ID: <code>{uid}</code>\n{role}\n\n"
+        f"🎯 Функция: <b>{mode}</b>\n🎚 Качество: <b>{q}</b>\n🧹 Автоудаление: <b>включено</b>\n\n"
+        f"🤝 <b>Рефералы:</b> {referrals}\n🔗 <code>{referral_link}</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🤝 Поделиться реферальной ссылкой", url=f"https://t.me/share/url?url={referral_link}")]
+        ])
+    )
+
+@router.message(F.text == "ℹ️ О боте")
+async def bot_info_button(message: Message):
+    if not _allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    text = content.get("bot_info_text", "ℹ️ <b>AVYX VS</b>")
+    image = content.get("bot_info_image")
+    if image:
+        await message.answer_photo(image, caption=text)
+    else:
+        await message.answer(text, reply_markup=menu(message.from_user.id))
+
 
 @router.message(F.text == "⚙️ Настройки")
 async def settings_button(message: Message):
-    if not access.allowed(message.from_user.id):
+    if not _allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
     await message.answer("⚙️ <b>Настройки AVYX VS</b>\n\nВыбери нужный параметр:", reply_markup=settings_menu(message.from_user.id))
 
@@ -158,7 +238,7 @@ async def admin_button(message: Message):
 
 @router.callback_query(F.data.startswith("mode:"))
 async def mode_select_callback(callback: CallbackQuery):
-    if not access.allowed(callback.from_user.id):
+    if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     mode = callback.data.split(":", 1)[1]
     selected_mode[callback.from_user.id] = mode
@@ -174,7 +254,7 @@ async def mode_select_callback(callback: CallbackQuery):
 
 @router.message(Command("text"))
 async def text_command(message: Message, bot):
-    if not access.allowed(message.from_user.id):
+    if not _allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
     if not await _mode_required(message, "transcribe"):
         return
@@ -202,15 +282,64 @@ async def admin_callback(callback: CallbackQuery):
     if not access.admin(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
-    if callback.data == "admin_users":
-        return await callback.message.answer("📋 Пользователи:\n" + ("\n".join(map(str, access.list_users())) or "Нет пользователей"))
+    uid = callback.from_user.id
+    data = callback.data
+    if data == "admin_users":
+        return await callback.message.answer("📋 Пользователи:\n" + ("\n".join(map(str, access.list_users())) or "Нет пользователей"), reply_markup=admin_menu())
+    if data == "admin_public_toggle":
+        content.set_public_access(not content.public_access)
+        state = "открыт для всех" if content.public_access else "закрыт, доступ только по приглашению"
+        return await callback.message.edit_text(f"🌐 <b>Доступ изменён</b>\n\nСейчас бот <b>{state}</b>.", reply_markup=admin_menu())
+    if data == "admin_referral":
+        img = "установлена" if content.get("referral_image") else "не установлена"
+        return await callback.message.edit_text(
+            f"🤝 <b>Реферальная программа</b>\n\n📝 Текст: установлен\n🖼 Картинка 630×360: {img}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✏️ Изменить текст", callback_data="admin_ref_text")],
+                [InlineKeyboardButton(text="🖼 Изменить картинку", callback_data="admin_ref_image")],
+                [InlineKeyboardButton(text="🗑 Удалить картинку", callback_data="admin_ref_image_clear")],
+                [InlineKeyboardButton(text="⬅️ Админка", callback_data="admin_back")]
+            ])
+        )
+    if data == "admin_bot_info":
+        img = "установлена" if content.get("bot_info_image") else "не установлена"
+        return await callback.message.edit_text(
+            f"ℹ️ <b>Информация о боте</b>\n\n📝 Текст: установлен\n🖼 Картинка 630×360: {img}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✏️ Изменить текст", callback_data="admin_info_text")],
+                [InlineKeyboardButton(text="🖼 Изменить картинку", callback_data="admin_info_image")],
+                [InlineKeyboardButton(text="🗑 Удалить картинку", callback_data="admin_info_image_clear")],
+                [InlineKeyboardButton(text="⬅️ Админка", callback_data="admin_back")]
+            ])
+        )
+    if data == "admin_ref_text":
+        admin_edit_state[uid] = "ref_text"
+        return await callback.message.answer("✍️ Отправь новый текст рефералки одним сообщением.")
+    if data == "admin_ref_image":
+        admin_edit_state[uid] = "ref_image"
+        return await callback.message.answer("🖼 Отправь картинку рефералки как фото ровно 630×360.")
+    if data == "admin_ref_image_clear":
+        content.set_referral_image(None)
+        return await callback.message.answer("✅ Картинка рефералки удалена.", reply_markup=admin_menu())
+    if data == "admin_info_text":
+        admin_edit_state[uid] = "bot_info_text"
+        return await callback.message.answer("✍️ Отправь новый текст информации о боте одним сообщением.")
+    if data == "admin_info_image":
+        admin_edit_state[uid] = "bot_info_image"
+        return await callback.message.answer("🖼 Отправь картинку информации о боте как фото ровно 630×360.")
+    if data == "admin_info_image_clear":
+        content.set_bot_info_image(None)
+        return await callback.message.answer("✅ Картинка информации о боте удалена.", reply_markup=admin_menu())
+    if data == "admin_back":
+        return await callback.message.edit_text("👑 <b>Админ-панель AVYX VS</b>", reply_markup=admin_menu())
     prompts = {
         "admin_add": "➕ Команда: <code>/add ID</code>",
         "admin_remove": "➖ Команда: <code>/remove ID</code>",
         "admin_block": "🚫 Команда: <code>/block ID</code>",
         "admin_promote": "👑 Команда: <code>/promote ID</code>"
     }
-    await callback.message.answer(prompts[callback.data])
+    await callback.message.answer(prompts.get(data, "Неизвестная команда."))
+
 
 @router.message(F.text.regexp(r"^/add\s+\d+$"))
 async def add_user(message: Message):
@@ -238,7 +367,7 @@ async def promote_user(message: Message):
 
 @router.callback_query(F.data.startswith("photo_duration:"))
 async def photo_duration_callback(callback: CallbackQuery):
-    if not access.allowed(callback.from_user.id):
+    if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     value = int(callback.data.split(":")[1])
     photo_duration[callback.from_user.id] = value
@@ -250,7 +379,7 @@ async def photo_duration_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "photo_settings")
 async def photo_settings_callback(callback: CallbackQuery):
-    if not access.allowed(callback.from_user.id):
+    if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
     current = photo_duration.get(callback.from_user.id, 10)
@@ -261,7 +390,7 @@ async def photo_settings_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "settings_menu")
 async def settings_callback(callback: CallbackQuery):
-    if not access.allowed(callback.from_user.id):
+    if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
     await callback.message.edit_text(
@@ -271,7 +400,7 @@ async def settings_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "quality_settings")
 async def quality_settings_callback(callback: CallbackQuery):
-    if not access.allowed(callback.from_user.id):
+    if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     current = quality.get(callback.from_user.id, "maximum")
     await callback.answer()
@@ -290,7 +419,7 @@ async def quality_settings_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("quality:"))
 async def quality_select_callback(callback: CallbackQuery):
-    if not access.allowed(callback.from_user.id):
+    if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     value = callback.data.split(":", 1)[1]
     if value not in ("economy", "standard", "maximum"):
@@ -304,7 +433,7 @@ async def quality_select_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "transcribe_info")
 async def transcribe_info(callback: CallbackQuery):
-    if not access.allowed(callback.from_user.id):
+    if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
     await callback.message.edit_text(
@@ -326,14 +455,14 @@ async def cleanup_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "back_menu")
 async def back_menu_callback(callback: CallbackQuery):
-    if not access.allowed(callback.from_user.id):
+    if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
     await callback.message.edit_text(WELCOME, reply_markup=menu(callback.from_user.id))
 
 @router.callback_query(F.data.endswith("_help"))
 async def menu_help(callback: CallbackQuery):
-    if not access.allowed(callback.from_user.id):
+    if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
     texts = {
@@ -352,12 +481,31 @@ WELCOME = (
 
 @router.message(CommandStart())
 async def start(message: Message):
-    if not access.allowed(message.from_user.id): return await message.answer('🔒 Доступ закрыт. Обратитесь к администратору AVYX VS.')
-    await message.answer(WELCOME, reply_markup=menu(message.from_user.id))
+    uid = message.from_user.id
+    args = (message.text or "").split(maxsplit=1)
+    referrer = None
+    if len(args) > 1 and args[1].startswith("ref_"):
+        try:
+            referrer = int(args[1][4:])
+        except ValueError:
+            referrer = None
+    if content.public_access:
+        access.register_user(uid)
+    if referrer and referrer != uid and _allowed(uid):
+        if access.add_referral(referrer, uid):
+            ref_text = content.get("referral_text", "")
+            ref_image = content.get("referral_image")
+            if ref_image:
+                await message.answer_photo(ref_image, caption=ref_text)
+            elif ref_text:
+                await message.answer(ref_text)
+    if not _allowed(uid):
+        return await message.answer("🔒 Доступ закрыт. Обратитесь к администратору AVYX VS.")
+    await message.answer(WELCOME, reply_markup=menu(uid))
 
 @router.message(Command("help"))
 async def help_cmd(message: Message):
-    if not access.allowed(message.from_user.id): return await message.answer('🔒 Доступ закрыт.')
+    if not _allowed(message.from_user.id): return await message.answer('🔒 Доступ закрыт.')
     await message.answer(WELCOME, reply_markup=menu(message.from_user.id))
 
 async def _download(bot, file_id: str, dst: Path):
@@ -397,7 +545,7 @@ async def _error(message: Message, exc: Exception):
 
 @router.message(F.photo)
 async def photo(message: Message, bot):
-    if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not _allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
     if not await _mode_required(message, "photo"):
         return
     duration = photo_duration.get(message.from_user.id, 10)
@@ -426,7 +574,7 @@ async def photo(message: Message, bot):
 
 @router.message(F.video)
 async def video(message: Message, bot):
-    if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not _allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
     if not await _mode_required(message, "video"):
         return
     if message.video.file_size and message.video.file_size > settings.max_download_mb * 1024 * 1024:
@@ -461,7 +609,7 @@ async def video(message: Message, bot):
 
 @router.message(F.audio)
 async def audio(message: Message, bot):
-    if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not _allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
     if not await _mode_required(message, "audio"):
         return
     if message.audio.file_size and message.audio.file_size > settings.max_download_mb * 1024 * 1024:
@@ -491,7 +639,7 @@ async def audio(message: Message, bot):
 
 @router.message(F.document)
 async def document(message: Message, bot):
-    if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not _allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
     if not await _mode_required(message, "file"):
         return
     doc = message.document
@@ -545,7 +693,7 @@ async def document(message: Message, bot):
         cleanup(job)
 
 async def _transcribe_message(message: Message, bot, file_id: str, filename: str):
-    if not access.allowed(message.from_user.id):
+    if not _allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
     if not await _mode_required(message, "transcribe"):
         return
@@ -584,6 +732,6 @@ async def video_note(message: Message, bot):
 
 @router.message()
 async def fallback(message: Message):
-    if not access.allowed(message.from_user.id):
+    if not _allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
     await message.answer("🎯 <b>Сначала выбери функцию в меню.</b>\n\nПока функция не выбрана, файлы не обрабатываются.", reply_markup=menu(message.from_user.id))
