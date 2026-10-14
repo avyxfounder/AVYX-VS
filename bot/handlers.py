@@ -601,10 +601,6 @@ async def advertising_button(message: Message):
         "После этого выберите срок и оплату Stars."
     )
 
-@router.message(F.text == "🎥 Видео → кружок")
-async def duplicate_never(message: Message):
-    pass
-
 @router.callback_query(F.data.startswith("mode:"))
 async def mode_callback(callback: CallbackQuery):
     mode = callback.data.split(":", 1)[1]
@@ -1028,7 +1024,7 @@ async def photo_handler(message: Message, bot):
 
 @router.message(F.video)
 async def video_handler(message: Message, bot):
-    if await _handle_admin_ticket_reply(message):
+    if await _handle_admin_ticket_reply(message, bot):
         return
     if await _handle_user_state(message, bot):
         return
