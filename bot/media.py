@@ -18,13 +18,16 @@ class MediaError(RuntimeError):
 ProgressCallback = Callable[[float], Awaitable[None]]
 
 def _ffmpeg_bin() -> str:
-    # Сначала используем системный FFmpeg хостинга, если он доступен.
-    # Если его нет — используем FFmpeg из imageio-ffmpeg.
+    # Сначала используем проверенный FFmpeg из imageio-ffmpeg,
+    # системный FFmpeg оставляем как запасной вариант.
+    if imageio_ffmpeg is not None:
+        try:
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            pass
     path = shutil.which("ffmpeg")
     if path:
         return path
-    if imageio_ffmpeg is not None:
-        return imageio_ffmpeg.get_ffmpeg_exe()
     raise MediaError("FFmpeg не найден на сервере. Установите FFmpeg или пакет imageio-ffmpeg.")
 
 async def run_ffmpeg(*args: str, progress: ProgressCallback | None = None):
