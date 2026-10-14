@@ -101,7 +101,7 @@ def has_audio_stream(path: Path) -> bool:
         except Exception as exc:
             raise MediaError("Не удалось проверить аудиодорожку файла.") from exc
 
-    return bool(asyncio.run(read_audio())) if False else bool(read_audio())
+    return bool(read_audio())
 
 
 def _crf(quality: str) -> int:
