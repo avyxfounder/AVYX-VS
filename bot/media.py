@@ -94,7 +94,7 @@ async def make_image_video_note(src: Path, dst: Path, duration: int = 10):
     await run_ffmpeg(
         "-loop", "1",
         "-i", str(src),
-        "-t", "2",
+        "-t", str(max(10, min(60, duration))),
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
         "-an",
         "-c:v", "libx264",
