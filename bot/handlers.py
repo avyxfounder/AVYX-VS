@@ -155,12 +155,6 @@ def admin_menu():
     ])
 
 
-@router.message(F.text | F.photo)
-async def admin_input_state_handler(message: Message, bot):
-    if await _admin_input(message, bot):
-        return
-
-
 @router.message(F.text == "🎥 Видео → кружок")
 async def select_video_mode(message: Message):
     if _allowed(message.from_user.id):
@@ -545,6 +539,8 @@ async def _error(message: Message, exc: Exception):
 
 @router.message(F.photo)
 async def photo(message: Message, bot):
+    if await _admin_input(message, bot):
+        return
     if not _allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
     if not await _mode_required(message, "photo"):
         return
@@ -732,6 +728,8 @@ async def video_note(message: Message, bot):
 
 @router.message()
 async def fallback(message: Message):
+    if await _admin_input(message):
+        return
     if not _allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
     await message.answer("🎯 <b>Сначала выбери функцию в меню.</b>\n\nПока функция не выбрана, файлы не обрабатываются.", reply_markup=menu(message.from_user.id))
