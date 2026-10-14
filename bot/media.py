@@ -69,9 +69,8 @@ async def make_video_note(src: Path, dst: Path, quality: str = "maximum"):
     await run_ffmpeg(
         "-i", str(src), "-t", "60",
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
-        "-an", "-c:v", "libx264", "-preset", "medium",
-        "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart", str(dst),
+        "-an", "-c:v", "libx264", "-preset", "fast", "-threads", "0",
+        "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p", str(dst),
     )
 
 
@@ -79,9 +78,8 @@ async def make_image_video_note(src: Path, dst: Path, duration: int = 10, qualit
     await run_ffmpeg(
         "-loop", "1", "-i", str(src), "-t", str(max(10, min(60, duration))),
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
-        "-an", "-c:v", "libx264", "-preset", "medium",
-        "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart", str(dst),
+        "-r", "15", "-an", "-c:v", "libx264", "-preset", "fast", "-threads", "0",
+        "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p", str(dst),
     )
 
 
