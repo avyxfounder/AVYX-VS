@@ -20,6 +20,13 @@ photo_duration: dict[int, int] = {}
 quality: dict[int, str] = {}
 selected_mode: dict[int, str] = {}
 
+WELCOME = (
+    "👋 <b>AVYX VS</b>\n\n"
+    "Сначала выбери функцию в меню ниже, затем отправь соответствующий файл.\n\n"
+    "🔒 Без выбора функции файлы не обрабатываются.\n"
+    "🧹 Временные файлы после обработки удаляются."
+)
+
 
 
 def _allowed(user_id: int) -> bool:
@@ -484,12 +491,6 @@ async def menu_help(callback: CallbackQuery):
     }
     await callback.message.edit_text(texts[callback.data], reply_markup=back_menu())
 
-WELCOME = (
-    "👋 <b>AVYX VS</b>\n\n"
-    "Сначала выбери функцию в меню ниже, затем отправь соответствующий файл.\n\n"
-    "🔒 Без выбора функции файлы не обрабатываются.\n"
-    "🧹 Временные файлы после обработки удаляются."
-)
 
 @router.message(CommandStart())
 async def start(message: Message):
