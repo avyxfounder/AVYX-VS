@@ -118,6 +118,8 @@ def admin_menu():
         [InlineKeyboardButton(text="ℹ️ Информация о боте", callback_data="admin_bot_info")],
         [InlineKeyboardButton(text="🌐 Доступ", callback_data="admin_access")],
         [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
+        [InlineKeyboardButton(text="⭐ Выдать подписку", callback_data="admin_grant_sub")],
+        [InlineKeyboardButton(text="❌ Снять подписку", callback_data="admin_revoke_sub")],
     ])
 
 def admin_billing_menu():
@@ -165,6 +167,7 @@ async def _send_main_menu(message: Message, text: str | None = None):
         return await message.answer("🔒 Доступ закрыт.")
     if text is None:
         text = content.get("welcome_text", WELCOME)
+    await _send_internal_pin(message.bot, message.chat.id)
     # Не удаляем клавиатуру после приветствия: меню должно оставаться
     # видимым даже если приветствие отправляется фото/видео/GIF.
     return await _send_custom_media(
@@ -276,6 +279,36 @@ def _extract_media(message: Message):
         return "animation", message.animation.file_id, message.caption or ""
     return None, None, message.text or ""
 
+def _parse_buttons(text):
+    buttons = []
+    for raw in (text or "").splitlines():
+        if "|" not in raw:
+            continue
+        title, url = raw.split("|", 1)
+        title, url = title.strip(), url.strip()
+        if title and url.startswith(("http://", "https://", "tg://")):
+            buttons.append({"text": title[:64], "url": url})
+        if len(buttons) >= 8:
+            break
+    return buttons
+
+def _url_keyboard(buttons):
+    rows = []
+    for item in buttons or []:
+        if item.get("text") and item.get("url"):
+            rows.append([InlineKeyboardButton(text=str(item["text"])[:64], url=item["url"])])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+async def _send_internal_pin(bot, chat_id: int):
+    item = publications.get_internal_pin()
+    if not item:
+        return
+    await _send_custom_media(
+        bot, chat_id, "📌 <b>Закреплено</b>\n\n" + item.get("text", ""),
+        item.get("media_type"), item.get("file_id"),
+        reply_markup=_url_keyboard(item.get("buttons", [])),
+    )
+
 async def _handle_user_state(message: Message, bot):
     uid = message.from_user.id
     state = user_state.get(uid)
@@ -313,9 +346,10 @@ async def _handle_user_state(message: Message, bot):
             await message.answer("📢 Отправь одним сообщением фото/видео/GIF с текстом в подписи.")
             return True
         drafts[uid] = {"media_type": media_type, "file_id": file_id, "text": text}
-        user_state[uid] = "ad_duration"
+        drafts[uid]["buttons"] = []
+        user_state[uid] = "ad_buttons"
         await message.answer(
-            "⏱ Выберите срок размещения:",
+            "🔘 Кнопки рекламы (необязательно). Отправьте по одной строке: <code>Название | https://ссылка</code>\nМожно до 8. Если не нужны — отправьте <code>-</code>."
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=f"1 час — {billing.ad_price(3600)} ⭐", callback_data="ad_duration:3600")],
                 [InlineKeyboardButton(text=f"6 часов — {billing.ad_price(21600)} ⭐", callback_data="ad_duration:21600")],
@@ -324,6 +358,29 @@ async def _handle_user_state(message: Message, bot):
                 [InlineKeyboardButton(text=f"7 дней — {billing.ad_price(604800)} ⭐", callback_data="ad_duration:604800")],
             ])
         )
+        return True
+    if state == "ad_buttons":
+        drafts[uid]["buttons"] = _parse_buttons(message.text or "")
+        user_state[uid] = "ad_duration"
+        await message.answer("⏱ Выберите срок размещения:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"1 час — {billing.ad_price(3600)} ⭐", callback_data="ad_duration:3600")],
+            [InlineKeyboardButton(text=f"6 часов — {billing.ad_price(21600)} ⭐", callback_data="ad_duration:21600")],
+            [InlineKeyboardButton(text=f"24 часа — {billing.ad_price(86400)} ⭐", callback_data="ad_duration:86400")],
+            [InlineKeyboardButton(text=f"3 дня — {billing.ad_price(259200)} ⭐", callback_data="ad_duration:259200")],
+            [InlineKeyboardButton(text=f"7 дней — {billing.ad_price(604800)} ⭐", callback_data="ad_duration:604800")],
+        ]))
+        return True
+    if state.startswith("news_buttons:") and _is_admin(uid):
+        news_id = int(state.split(":")[1])
+        item = publications.get_news(news_id)
+        if not item: return True
+        item["buttons"] = _parse_buttons(message.text or "")
+        publications.save()
+        admin_state[uid] = f"news_pin:{news_id}"
+        await message.answer("📰 Сделать новость внутренним закрепом?", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📌 Да, закрепить", callback_data=f"news_pin:{news_id}:yes")],
+            [InlineKeyboardButton(text="Без закрепа", callback_data=f"news_pin:{news_id}:no")],
+        ]))
         return True
     if state == "news_message" and _is_admin(uid):
         media_type, file_id, text = _extract_media(message)
@@ -339,11 +396,11 @@ async def _handle_user_state(message: Message, bot):
         return True
     return False
 
-async def _broadcast(bot, user_ids, text, media_type=None, file_id=None):
+async def _broadcast(bot, user_ids, text, media_type=None, file_id=None, buttons=None):
     sent = []
     for uid in user_ids:
         try:
-            msg = await _send_custom_media(bot, int(uid), text, media_type, file_id)
+            msg = await _send_custom_media(bot, int(uid), text, media_type, file_id, reply_markup=_url_keyboard(buttons or []))
             sent.append({"chat_id": int(uid), "message_id": msg.message_id})
         except Exception:
             pass
@@ -353,13 +410,15 @@ async def _broadcast(bot, user_ids, text, media_type=None, file_id=None):
 async def _publish_news(bot, item, pin_requested: bool):
     sent = await _broadcast(
         bot, access.list_users(), item.get("text", ""),
-        item.get("media_type"), item.get("file_id")
+        item.get("media_type"), item.get("file_id"), item.get("buttons", [])
     )
     item["messages"] = sent
+    if pin_requested:
+        publications.set_internal_pin("news", item["id"])
     pub_chat = content.get("publication_chat_id")
     if pub_chat:
         try:
-            msg = await _send_custom_media(bot, int(pub_chat), item.get("text", ""), item.get("media_type"), item.get("file_id"))
+            msg = await _send_custom_media(bot, int(pub_chat), item.get("text", ""), item.get("media_type"), item.get("file_id"), reply_markup=_url_keyboard(item.get("buttons", [])))
             item["publication_message_id"] = msg.message_id
             item["publication_chat_id"] = int(pub_chat)
             if pin_requested:
@@ -381,6 +440,8 @@ async def _publish_ad(bot, item):
     item["status"] = "active"
     item["approved_at"] = int(time.time())
     item["expires_at"] = int(time.time()) + int(item["duration_seconds"])
+    if item.get("pin_requested"):
+        publications.set_internal_pin("ad", item["id"])
     pub_chat = content.get("publication_chat_id")
     if pub_chat:
         try:
@@ -696,9 +757,9 @@ async def ad_duration_callback(callback: CallbackQuery):
     user_state[uid] = f"ad_pin:{seconds}"
     await callback.answer()
     await callback.message.edit_text(
-        "📌 Разместить с закрепом в канале/группе публикаций?",
+        "📌 Сделать рекламу внутренним закрепом в боте?",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📌 Да", callback_data=f"ad_pin:{seconds}:yes")],
+            [InlineKeyboardButton(text="📌 Да, закрепить в боте", callback_data=f"ad_pin:{seconds}:yes")],
             [InlineKeyboardButton(text="Без закрепа", callback_data=f"ad_pin:{seconds}:no")],
         ])
     )
@@ -712,7 +773,7 @@ async def ad_pin_callback(callback: CallbackQuery):
     draft = drafts.get(uid)
     if not draft:
         return await callback.answer("Заявка устарела.", show_alert=True)
-    order = publications.create_ad(uid, draft["text"], draft["media_type"], draft["file_id"], seconds, pin, billing.ad_price(seconds))
+    order = publications.create_ad(uid, draft["text"], draft["media_type"], draft["file_id"], seconds, pin, billing.ad_price(seconds), draft.get("buttons", []))
     payment_id = billing.create_payment("ad", uid, order["price"], {"order_id": order["id"]})
     publications.update_ad(order["id"], payment_id=payment_id)
     user_state.pop(uid, None)
@@ -767,6 +828,24 @@ async def successful_payment(message: Message):
                     [InlineKeyboardButton(text="❌ Отклонить + возврат", callback_data=f"ad_reject:{order_id}")],
                 ])
             )
+
+@router.callback_query(F.data.startswith("grant_sub:"))
+async def grant_sub_callback(callback: CallbackQuery):
+    if not _is_admin(callback.from_user.id): return await callback.answer("Доступ закрыт", show_alert=True)
+    _, target_s, seconds_s = callback.data.split(":")
+    target, seconds = int(target_s), int(seconds_s)
+    usage.ensure_user(target)
+    if seconds == 0:
+        usage.activate_subscription(target, 253402300799)
+        label = "навсегда"
+    else:
+        usage.grant_subscription(target, seconds)
+        label = f"{seconds // 86400} дней"
+    admin_state.pop(callback.from_user.id, None)
+    try: await callback.bot.send_message(target, f"⭐ Вам выдана подписка AVYX VS: <b>{label}</b>.")
+    except Exception: pass
+    await callback.answer("Готово")
+    await callback.message.edit_text(f"✅ Подписка пользователю <code>{target}</code>: <b>{label}</b>.", reply_markup=admin_menu())
 
 @router.callback_query(F.data.startswith("ad_approve:"))
 async def ad_approve(callback: CallbackQuery):
@@ -836,6 +915,9 @@ async def admin_callback(callback: CallbackQuery):
     uid = callback.from_user.id
     if data == "admin_back":
         return await callback.message.edit_text("👑 <b>Админ-панель</b>", reply_markup=admin_menu())
+    if data in ("admin_grant_sub", "admin_revoke_sub"):
+        admin_state[uid] = "grant_sub_id" if data == "admin_grant_sub" else "revoke_sub_id"
+        return await callback.message.answer("Отправьте Telegram ID пользователя числом.")
     if data == "admin_users":
         users = access.list_users()
         return await callback.message.edit_text(
@@ -983,6 +1065,8 @@ async def news_delete(callback: CallbackQuery):
             await callback.bot.delete_message(int(item["publication_chat_id"]), int(item["publication_message_id"]))
         except Exception:
             pass
+    if publications.data.get("internal_pin", {}).get("kind") == "news" and int(publications.data.get("internal_pin", {}).get("id", -1)) == news_id:
+        publications.clear_internal_pin()
     publications.delete_news_record(news_id)
     await callback.answer("Удалено")
     await callback.message.edit_text("📰 Новость удалена.", reply_markup=admin_menu())
@@ -1250,8 +1334,10 @@ async def _handle_admin_input(message: Message):
         if not _is_admin(uid):
             return False
         media_type, file_id, text = _extract_media(message)
-        item = publications.create_news(text, media_type, file_id)
-        admin_state[uid] = f"news_pin:{item['id']}"
+        item = publications.create_news(text, media_type, file_id, [])
+        admin_state[uid] = f"news_buttons:{item['id']}"
+        await message.answer("🔘 Кнопки новости (необязательно). Формат: <code>Название | https://ссылка</code>\nДо 8 кнопок. Если не нужны — отправьте <code>-</code>.")
+        return True
         await message.answer(
             "📰 Новость создана. Закрепить её в чате публикаций?",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -1311,6 +1397,23 @@ async def _handle_admin_input(message: Message):
         content.set_bot_info_text(message.text)
         admin_state.pop(uid, None)
         await message.answer("✅ Информация сохранена.", reply_markup=admin_menu())
+        return True
+    if state == "grant_sub_id":
+        target = int((message.text or "").strip())
+        usage.ensure_user(target)
+        admin_state[uid] = f"grant_sub_duration:{target}"
+        await message.answer("⭐ Выберите срок:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="1 день", callback_data=f"grant_sub:{target}:86400")],
+            [InlineKeyboardButton(text="7 дней", callback_data=f"grant_sub:{target}:604800")],
+            [InlineKeyboardButton(text="30 дней", callback_data=f"grant_sub:{target}:2592000")],
+            [InlineKeyboardButton(text="♾ Навсегда", callback_data=f"grant_sub:{target}:0")],
+        ]))
+        return True
+    if state == "revoke_sub_id":
+        target = int((message.text or "").strip())
+        usage.revoke_subscription(target)
+        admin_state.pop(uid, None)
+        await message.answer(f"❌ Подписка <code>{target}</code> снята.", reply_markup=admin_menu())
         return True
     if state == "set_sub_price" or state.startswith("set_ad_price:"):
         try:
