@@ -43,12 +43,15 @@ def photo_settings_menu(current: int):
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def settings_menu():
+def settings_menu(user_id: int):
+    d = photo_duration.get(user_id, 10)
+    q = {"economy": "Эконом", "standard": "Стандарт", "maximum": "Максимум"}.get(quality.get(user_id, "maximum"), "Максимум")
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🖼 Длительность фото-кружка", callback_data="photo_settings")],
-        [InlineKeyboardButton(text="🎥 Лимит видео-кружка: 60 сек", callback_data="video_settings")],
-        [InlineKeyboardButton(text="🎚 Качество: максимальное", callback_data="quality_info")],
-        [InlineKeyboardButton(text="🧹 Автоудаление файлов: включено", callback_data="cleanup_info")],
+        [InlineKeyboardButton(text=f"🖼 Фото-кружок: {d} сек", callback_data="photo_settings")],
+        [InlineKeyboardButton(text=f"🎚 Качество: {q}", callback_data="quality_settings")],
+        [InlineKeyboardButton(text="🎥 Видео-кружок: до 60 сек", callback_data="video_settings")],
+        [InlineKeyboardButton(text="🧹 Автоудаление: включено", callback_data="cleanup_info")],
+        [InlineKeyboardButton(text="ℹ️ Как работает бот", callback_data="settings_info")],
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_menu")]
     ])
 
@@ -137,6 +140,49 @@ async def settings_callback(callback: CallbackQuery):
     await callback.message.edit_text(
         "⚙️ <b>Настройки AVYX VS</b>\n\nВыбери нужный параметр:",
         reply_markup=settings_menu()
+    )
+
+@router.callback_query(F.data == "quality_settings")
+async def quality_settings_callback(callback: CallbackQuery):
+    if not access.allowed(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    current = quality.get(callback.from_user.id, "maximum")
+    await callback.answer()
+    await callback.message.edit_text(
+        "🎚 <b>Качество</b>\n\n"
+        "Эконом — меньший размер.\n"
+        "Стандарт — баланс.\n"
+        "Максимум — лучшее качество.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=("✅ " if current == "economy" else "") + "Эконом", callback_data="quality:economy")],
+            [InlineKeyboardButton(text=("✅ " if current == "standard" else "") + "Стандарт", callback_data="quality:standard")],
+            [InlineKeyboardButton(text=("✅ " if current == "maximum" else "") + "Максимум", callback_data="quality:maximum")],
+            [InlineKeyboardButton(text="⬅️ Настройки", callback_data="settings_menu")]
+        ])
+    )
+
+@router.callback_query(F.data.startswith("quality:"))
+async def quality_select_callback(callback: CallbackQuery):
+    if not access.allowed(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    value = callback.data.split(":", 1)[1]
+    if value not in ("economy", "standard", "maximum"):
+        return await callback.answer("Недопустимое качество", show_alert=True)
+    quality[callback.from_user.id] = value
+    await callback.answer("Качество сохранено")
+    await callback.message.edit_text(
+        "⚙️ <b>Настройки AVYX VS</b>\n\nВыбери параметр:",
+        reply_markup=settings_menu(callback.from_user.id)
+    )
+
+@router.callback_query(F.data == "transcribe_info")
+async def transcribe_info(callback: CallbackQuery):
+    if not access.allowed(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    await callback.answer()
+    await callback.message.edit_text(
+        "📝 <b>Расшифровка</b>\n\nГолосовые, видео и кружки будут преобразовываться в текст. Модуль распознавания подключим следующим этапом.",
+        reply_markup=back_menu()
     )
 
 @router.callback_query(F.data == "video_settings")
