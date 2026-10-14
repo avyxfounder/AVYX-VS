@@ -33,10 +33,17 @@ def _ffmpeg_bin() -> str:
 
 async def run_ffmpeg(*args: str, progress: ProgressCallback | None = None):
     proc = await asyncio.create_subprocess_exec(
-        _ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-y", *args,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        _ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-y",
+        *args,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
     )
-    _, err = await proc.communicate()
+    try:
+        _, err = await asyncio.wait_for(proc.communicate(), timeout=180)
+    except asyncio.TimeoutError as exc:
+        proc.kill()
+        await proc.communicate()
+        raise MediaError("Обработка заняла слишком много времени и была остановлена.") from exc
     if proc.returncode:
         details = err.decode("utf-8", errors="replace").strip()
         raise MediaError(details or "Не удалось обработать файл.")
@@ -81,6 +88,20 @@ def duration_seconds(info: dict) -> float:
         return float(info.get("format", {}).get("duration", 0))
     except Exception:
         return 0.0
+
+
+def has_audio_stream(path: Path) -> bool:
+    if av is None:
+        return False
+
+    def read_audio():
+        try:
+            with av.open(str(path)) as container:
+                return len(container.streams.audio) > 0
+        except Exception as exc:
+            raise MediaError("Не удалось проверить аудиодорожку файла.") from exc
+
+    return bool(asyncio.run(read_audio())) if False else bool(read_audio())
 
 
 def _crf(quality: str) -> int:
