@@ -109,6 +109,7 @@ def settings_menu(user_id: int):
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📰 Новости", callback_data="admin_news")],
+        [InlineKeyboardButton(text="📌 Чат для закрепов", callback_data="admin_set_pub_chat")],
         [InlineKeyboardButton(text="📢 Реклама", callback_data="admin_ads")],
         [InlineKeyboardButton(text="💳 Stars и подписка", callback_data="admin_billing")],
         [InlineKeyboardButton(text="🔐 Внешние реквизиты", callback_data="admin_external")],
@@ -921,6 +922,9 @@ async def admin_callback(callback: CallbackQuery):
     if data == "admin_info_image_clear":
         content.set_bot_info_image(None)
         return await callback.message.answer("✅ Картинка удалена.", reply_markup=admin_menu())
+    if data == "admin_set_pub_chat":
+        admin_state[uid] = "set_pub_chat"
+        return await callback.message.answer("Отправьте ID группы/канала для публикаций (например, -1001234567890). Бот должен быть администратором для закрепа.")
     if data == "admin_news":
         admin_state.pop(uid, None)
         buttons = [[InlineKeyboardButton(text="➕ Опубликовать новость", callback_data="admin_news_create")]]
@@ -1201,6 +1205,20 @@ async def _handle_admin_input(message: Message):
     state = admin_state.get(uid)
     if not state:
         return False
+    if state == "news_message":
+        if not _is_admin(uid):
+            return False
+        media_type, file_id, text = _extract_media(message)
+        item = publications.create_news(text, media_type, file_id)
+        admin_state[uid] = f"news_pin:{item['id']}"
+        await message.answer(
+            "📰 Новость создана. Закрепить её в чате публикаций?",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📌 С закрепом", callback_data=f"news_pin:{item['id']}:yes")],
+                [InlineKeyboardButton(text="Без закрепа", callback_data=f"news_pin:{item['id']}:no")],
+            ])
+        )
+        return True
     if state == "welcome_text":
         if not message.text:
             await message.answer("Нужен текст.")
@@ -1267,6 +1285,16 @@ async def _handle_admin_input(message: Message):
             billing.set_ad_price(int(state.split(":")[1]), value)
         admin_state.pop(uid, None)
         await message.answer("✅ Цена сохранена.", reply_markup=admin_billing_menu())
+        return True
+    if state == "set_pub_chat":
+        try:
+            chat_id = int((message.text or "").strip())
+        except ValueError:
+            await message.answer("Нужен числовой chat ID.")
+            return True
+        content.set_publication_chat_id(chat_id)
+        admin_state.pop(uid, None)
+        await message.answer("✅ Чат публикаций сохранён.", reply_markup=admin_menu())
         return True
     if state == "set_ton_wallet":
         billing.set_external(ton_wallet=message.text or "")
