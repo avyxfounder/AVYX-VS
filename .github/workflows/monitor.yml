@@ -1,0 +1,22 @@
+name: AVYX VS monitor
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  healthcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Render service
+        env:
+          HEALTH_URL: ${{ secrets.AVYX_HEALTH_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "AVYX_HEALTH_URL secret is not configured; skipping."
+            exit 0
+          fi
+          echo "Checking $HEALTH_URL"
+          curl --fail --silent --show-error --max-time 30 "$HEALTH_URL"
+          echo
