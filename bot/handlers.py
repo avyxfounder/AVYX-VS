@@ -155,6 +155,15 @@ def admin_menu():
     ])
 
 
+@router.message(F.text == "❌ Сбросить функцию")
+async def reset_mode(message: Message):
+    if not _allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    selected_mode.pop(message.from_user.id, None)
+    admin_edit_state.pop(message.from_user.id, None)
+    await message.answer("🏠 <b>Функция сброшена.</b>\n\nТеперь сначала выбери нужную функцию.", reply_markup=menu(message.from_user.id))
+
+
 @router.message(F.text == "🎥 Видео → кружок")
 async def select_video_mode(message: Message):
     if _allowed(message.from_user.id):
