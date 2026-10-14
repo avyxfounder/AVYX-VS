@@ -526,6 +526,8 @@ async def profile(message: Message):
 
 @router.message(F.text == "⭐ Подписка")
 async def subscription(message: Message):
+    if not _allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
     uid = message.from_user.id
     usage.ensure_user(uid)
     payment_id = billing.create_payment("subscription", uid, billing.subscription_price)
@@ -596,6 +598,8 @@ async def support_button(message: Message):
 
 @router.message(F.text == "📢 Заказать рекламу")
 async def advertising_button(message: Message):
+    if not _allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
     user_state[message.from_user.id] = "ad_message"
     drafts.pop(message.from_user.id, None)
     await message.answer(
