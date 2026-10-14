@@ -23,7 +23,7 @@ selected_mode: dict[int, str] = {}
 
 
 def _allowed(user_id: int) -> bool:
-    return _allowed(user_id, content.public_access if content else False)
+    return access.allowed(user_id, content.public_access if content else False)
 
 
 def menu(user_id: int):
