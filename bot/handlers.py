@@ -355,6 +355,8 @@ async def _publish_news(bot, item, pin_requested: bool):
     if pub_chat:
         try:
             msg = await _send_custom_media(bot, int(pub_chat), item.get("text", ""), item.get("media_type"), item.get("file_id"))
+            item["publication_message_id"] = msg.message_id
+            item["publication_chat_id"] = int(pub_chat)
             if pin_requested:
                 try:
                     await bot.pin_chat_message(chat_id=int(pub_chat), message_id=msg.message_id, disable_notification=True)
@@ -961,6 +963,15 @@ async def news_delete(callback: CallbackQuery):
     for sent in item.get("messages", []):
         try:
             await callback.bot.delete_message(int(sent["chat_id"]), int(sent["message_id"]))
+        except Exception:
+            pass
+    if item.get("publication_message_id") and item.get("publication_chat_id"):
+        try:
+            await callback.bot.unpin_chat_message(int(item["publication_chat_id"]), int(item["publication_message_id"]))
+        except Exception:
+            pass
+        try:
+            await callback.bot.delete_message(int(item["publication_chat_id"]), int(item["publication_message_id"]))
         except Exception:
             pass
     publications.delete_news_record(news_id)
