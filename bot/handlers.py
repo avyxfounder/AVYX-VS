@@ -148,27 +148,29 @@ def welcome_admin_menu():
         [InlineKeyboardButton(text="⬅️ Админка", callback_data="admin_back")],
     ])
 
-async def _send_custom_media(bot, chat_id: int, text: str, media_type: str | None, file_id: str | None):
+async def _send_custom_media(bot, chat_id: int, text: str, media_type: str | None, file_id: str | None, reply_markup=None):
     if not file_id:
-        return await bot.send_message(chat_id=chat_id, text=text or WELCOME)
+        return await bot.send_message(chat_id=chat_id, text=text or WELCOME, reply_markup=reply_markup)
     caption = (text or "")[:1024]
     if media_type == "photo":
-        return await bot.send_photo(chat_id, file_id, caption=caption)
+        return await bot.send_photo(chat_id, file_id, caption=caption, reply_markup=reply_markup)
     if media_type == "video":
-        return await bot.send_video(chat_id, file_id, caption=caption)
+        return await bot.send_video(chat_id, file_id, caption=caption, reply_markup=reply_markup)
     if media_type == "animation":
-        return await bot.send_animation(chat_id, file_id, caption=caption)
-    return await bot.send_message(chat_id=chat_id, text=text or "")
+        return await bot.send_animation(chat_id, file_id, caption=caption, reply_markup=reply_markup)
+    return await bot.send_message(chat_id=chat_id, text=text or "", reply_markup=reply_markup)
 
 async def _send_main_menu(message: Message, text: str | None = None):
     if not _allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
     if text is None:
         text = content.get("welcome_text", WELCOME)
-    await message.answer("⌨️ Меню обновлено.", reply_markup=ReplyKeyboardRemove())
+    # Не удаляем клавиатуру после приветствия: меню должно оставаться
+    # видимым даже если приветствие отправляется фото/видео/GIF.
     return await _send_custom_media(
         message.bot, message.chat.id, text,
-        content.get("welcome_media_type"), content.get("welcome_media")
+        content.get("welcome_media_type"), content.get("welcome_media"),
+        reply_markup=menu(message.from_user.id),
     )
 
 def _mode_required(user_id: int, mode: str) -> bool:
