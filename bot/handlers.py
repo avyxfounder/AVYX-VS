@@ -8,7 +8,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import (
     Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton,
     CallbackQuery, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton,
-    LabeledPrice, PreCheckoutQuery
+    LabeledPrice, PreCheckoutQuery, ReplyParameters
 )
 from aiogram.enums import ChatAction
 
@@ -220,7 +220,10 @@ def _too_large(path: Path) -> bool:
 
 async def _status(message: Message, text: str):
     try:
-        return await message.answer(text)
+        return await message.answer(
+            text,
+            reply_parameters=ReplyParameters(message_id=message.message_id),
+        )
     except Exception:
         return None
 
@@ -460,42 +463,42 @@ async def admin_button(message: Message):
 @router.message(F.text == "🎥 Видео → кружок")
 async def select_video(message: Message):
     selected_mode[message.from_user.id] = "video"
-    await message.answer("🎥 Отправь видео до 60 секунд.", reply_markup=menu(message.from_user.id))
+    await message.answer("🎥 <b>Видео → кружок</b>\nОтправь видео до 60 секунд.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
 
 @router.message(F.text == "🖼 Фото → кружок")
 async def select_photo(message: Message):
     selected_mode[message.from_user.id] = "photo"
-    await message.answer("🖼 Отправь фото. Длительность задаётся в настройках.", reply_markup=menu(message.from_user.id))
+    await message.answer("🖼 <b>Фото → кружок</b>\nОтправь фото. Длительность задаётся в настройках.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
 
 @router.message(F.text == "🎵 Аудио → голосовое")
 async def select_audio(message: Message):
     selected_mode[message.from_user.id] = "audio"
-    await message.answer("🎵 Отправь аудио/музыку.", reply_markup=menu(message.from_user.id))
+    await message.answer("🎵 <b>Аудио → голосовое</b>\nОтправь аудио/музыку.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
 
 @router.message(F.text == "🎬 Видео → MP3")
 async def select_video_mp3(message: Message):
     selected_mode[message.from_user.id] = "video_mp3"
-    await message.answer("🎬 Отправь видео — получишь MP3.", reply_markup=menu(message.from_user.id))
+    await message.answer("🎬 <b>Видео → MP3</b>\nОтправь видео — получишь MP3.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
 
 @router.message(F.text == "⭕ Кружок → MP3")
 async def select_circle_mp3(message: Message):
     selected_mode[message.from_user.id] = "circle_mp3"
-    await message.answer("⭕ Отправь видео-кружок — получишь MP3.", reply_markup=menu(message.from_user.id))
+    await message.answer("⭕ <b>Кружок → MP3</b>\nОтправь видео-кружок — получишь MP3.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
 
 @router.message(F.text == "⭕ Кружок → голосовое")
 async def select_circle_voice(message: Message):
     selected_mode[message.from_user.id] = "circle_voice"
-    await message.answer("⭕ Отправь видео-кружок — получишь голосовое.", reply_markup=menu(message.from_user.id))
+    await message.answer("⭕ <b>Кружок → голосовое</b>\nОтправь видео-кружок — получишь голосовое.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
 
 @router.message(F.text == "🎙 Голос → MP3")
 async def select_voice_mp3(message: Message):
     selected_mode[message.from_user.id] = "voice_mp3"
-    await message.answer("🎙 Отправь голосовое — получишь MP3.", reply_markup=menu(message.from_user.id))
+    await message.answer("🎙 <b>Голос → MP3</b>\nОтправь голосовое — получишь MP3.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
 
 @router.message(F.text == "📝 Расшифровка")
 async def select_transcribe(message: Message):
     selected_mode[message.from_user.id] = "transcribe"
-    await message.answer("📝 Отправь голосовое, кружок, видео или аудио.", reply_markup=menu(message.from_user.id))
+    await message.answer("📝 <b>Расшифровка</b>\nОтправь голосовое, кружок, видео или аудио.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
 
 @router.message(F.text == "❌ Сбросить функцию")
 async def reset_mode(message: Message):
@@ -1035,7 +1038,10 @@ async def photo_handler(message: Message, bot):
         await make_image_video_note(src, dst, duration, quality.get(message.from_user.id, "maximum"))
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
-        await message.answer_video_note(FSInputFile(dst), duration=duration, length=640)
+        await message.answer_video_note(
+            FSInputFile(dst), duration=duration, length=640,
+            reply_parameters=ReplyParameters(message_id=message.message_id),
+        )
         await _status_update(status, "✅ Готово " + _progress_bar(100))
     except Exception as exc:
         await _refund_if_needed(message.from_user.id, reserved)
@@ -1080,7 +1086,10 @@ async def _video_to_circle(message: Message, bot, file_id: str):
         await make_video_note(src, dst, quality.get(message.from_user.id, "maximum"))
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
-        await message.answer_video_note(FSInputFile(dst), duration=max(1, min(60, round(duration))), length=640)
+        await message.answer_video_note(
+            FSInputFile(dst), duration=max(1, min(60, round(duration))), length=640,
+            reply_parameters=ReplyParameters(message_id=message.message_id),
+        )
         await _status_update(status, "✅ Готово " + _progress_bar(100))
     except Exception as exc:
         await _refund_if_needed(message.from_user.id, reserved)
@@ -1102,7 +1111,10 @@ async def _media_to_mp3(message: Message, bot, file_id: str, filename: str):
         await make_mp3(src, dst)
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
-        await message.answer_document(FSInputFile(dst), caption="🎵 MP3 готов.")
+        await message.answer_document(
+            FSInputFile(dst), caption="🎵 MP3 готов.",
+            reply_parameters=ReplyParameters(message_id=message.message_id),
+        )
         await _status_update(status, "✅ Готово " + _progress_bar(100))
     except Exception as exc:
         await _refund_if_needed(message.from_user.id, reserved)
@@ -1123,7 +1135,10 @@ async def _circle_to_voice(message: Message, bot):
         await make_voice(src, dst)
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
-        await message.answer_voice(FSInputFile(dst))
+        await message.answer_voice(
+            FSInputFile(dst),
+            reply_parameters=ReplyParameters(message_id=message.message_id),
+        )
         await _status_update(status, "✅ Готово " + _progress_bar(100))
     except Exception as exc:
         await _refund_if_needed(message.from_user.id, reserved)
@@ -1153,7 +1168,10 @@ async def audio_handler(message: Message, bot):
             await _download(bot, message.audio.file_id, src)
             await _status_update(status, "🎵 Создаю голосовое " + _progress_bar(65))
             await make_voice(src, dst)
-            await message.answer_voice(FSInputFile(dst))
+            await message.answer_voice(
+                FSInputFile(dst),
+                reply_parameters=ReplyParameters(message_id=message.message_id),
+            )
             await _status_update(status, "✅ Готово " + _progress_bar(100))
         except Exception as exc:
             await _refund_if_needed(message.from_user.id, reserved)
@@ -1207,9 +1225,15 @@ async def _transcribe_message(message: Message, bot, file_id: str, filename: str
         text = await transcribe(src)
         if len(text) > 3800:
             for i in range(0, len(text), 3800):
-                await message.answer("📝 " + text[i:i+3800])
+                await message.answer(
+                "📝 " + text[i:i+3800],
+                reply_parameters=ReplyParameters(message_id=message.message_id),
+            )
         else:
-            await message.answer("📝 <b>Расшифровка</b>\n\n" + text)
+            await message.answer(
+                "📝 <b>Расшифровка</b>\n\n" + text,
+                reply_parameters=ReplyParameters(message_id=message.message_id),
+            )
         await _status_update(status, "✅ Готово " + _progress_bar(100))
     except Exception as exc:
         await _refund_if_needed(message.from_user.id, reserved)
