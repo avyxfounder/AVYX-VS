@@ -1,6 +1,11 @@
 import asyncio
 import re
 import shutil
+
+try:
+    import av
+except ImportError:
+    av = None
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -38,8 +43,25 @@ async def run_ffmpeg(*args: str, progress: ProgressCallback | None = None):
 
 
 async def probe(path: Path) -> dict:
+    if av is not None:
+        def read_metadata():
+            try:
+                with av.open(str(path)) as container:
+                    duration = 0.0
+                    if container.duration:
+                        duration = float(container.duration) / float(av.time_base)
+                    if duration <= 0:
+                        for stream in container.streams:
+                            if stream.duration and stream.time_base:
+                                duration = max(duration, float(stream.duration * stream.time_base))
+                    return duration
+            except Exception as exc:
+                raise MediaError("Не удалось прочитать видео. Проверьте файл.") from exc
+        duration = await asyncio.to_thread(read_metadata)
+        return {"format": {"duration": duration}}
+
     proc = await asyncio.create_subprocess_exec(
-        _ffmpeg_bin(), "-hide_banner", "-i", str(path), "-f", "null", "-",
+        _ffmpeg_bin(), "-hide_banner", "-i", str(path),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
     _, err = await proc.communicate()
@@ -49,7 +71,7 @@ async def probe(path: Path) -> dict:
     if match:
         h, m, s = match.groups()
         duration = int(h) * 3600 + int(m) * 60 + float(s)
-    if proc.returncode and duration <= 0:
+    if duration <= 0:
         raise MediaError("Не удалось прочитать видео. Проверьте файл.")
     return {"format": {"duration": duration}}
 
