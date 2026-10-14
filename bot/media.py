@@ -18,17 +18,19 @@ class MediaError(RuntimeError):
 ProgressCallback = Callable[[float], Awaitable[None]]
 
 def _ffmpeg_bin() -> str:
-    # Сначала используем проверенный FFmpeg из imageio-ffmpeg,
-    # системный FFmpeg оставляем как запасной вариант.
+    # На хостинге сначала используем системный FFmpeg (обычно он
+    # собран с полноценным H.264/libx264), а bundled FFmpeg оставляем
+    # запасным вариантом.
+    path = shutil.which("ffmpeg")
+    if path:
+        return path
     if imageio_ffmpeg is not None:
         try:
             return imageio_ffmpeg.get_ffmpeg_exe()
         except Exception:
             pass
-    path = shutil.which("ffmpeg")
-    if path:
-        return path
-    raise MediaError("FFmpeg не найден на сервере. Установите FFmpeg или пакет imageio-ffmpeg.")
+    raise MediaError("FFmpeg не найден на сервере.")
+
 
 async def run_ffmpeg(*args: str, progress: ProgressCallback | None = None):
     proc = await asyncio.create_subprocess_exec(
@@ -89,10 +91,11 @@ async def make_video_note(src: Path, dst: Path, quality: str = "maximum"):
     await run_ffmpeg(
         "-i", str(src), "-t", "60", "-map", "0:v:0", "-map", "0:a:0?",
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
-        "-c:v", "libx264", "-preset", "veryfast", "-threads", "2",
+        "-r", "30", "-c:v", "libx264", "-profile:v", "high", "-level:v", "3.1",
+        "-preset", "veryfast", "-threads", "2",
         "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000",
-        "-movflags", "+faststart", str(dst),
+        "-movflags", "+faststart", "-f", "mp4", str(dst),
     )
 
 async def make_image_video_note(src: Path, dst: Path, duration: int = 10, quality: str = "maximum"):
