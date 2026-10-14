@@ -256,6 +256,8 @@ def _admin_reply_ticket(message: Message):
     )
 
 async def _handle_admin_ticket_reply(message: Message, bot):
+    if not message.reply_to_message:
+        return False
     ticket = support.by_admin_message(message.reply_to_message.message_id)
     if not ticket or ticket.get("status") != "open":
         return False
@@ -1120,7 +1122,7 @@ async def _video_to_circle(message: Message, bot, file_id: str):
     status = await _status(message, "⏳ " + _progress_bar(5) + " 5%")
     try:
         src, dst = job / "input.mp4", job / "video_note.mp4"
-        await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO)
+        await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO_NOTE)
         await _download(bot, file_id, src)
         info = await probe(src)
         duration = duration_seconds(info)
@@ -1466,13 +1468,56 @@ async def _handle_admin_input(message: Message):
         return True
     return False
 
+async def _audio_document_to_voice(message: Message, bot):
+    if not await _reserve(message):
+        return
+    reserved = not _is_admin(message.from_user.id)
+    job = new_job_dir(settings.temp_dir)
+    status = await _status(message, "⏳ " + _progress_bar(5) + " 5%")
+    try:
+        src, dst = job / "audio", job / "voice.ogg"
+        await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VOICE)
+        await _download(bot, message.document.file_id, src)
+        await _status_update(status, "🎵 Создаю голосовое " + _progress_bar(65))
+        await make_voice(src, dst)
+        if _too_large(dst):
+            raise MediaError("Результат больше лимита отправки.")
+        await message.answer_voice(FSInputFile(dst), reply_parameters=ReplyParameters(message_id=message.message_id))
+        await _status_update(status, "✅ Готово " + _progress_bar(100))
+    except Exception as exc:
+        await _refund_if_needed(message.from_user.id, reserved)
+        await _error(message, exc)
+    finally:
+        cleanup(job)
+
 @router.message(F.document)
-async def document_removed(message: Message, bot):
+async def document_handler(message: Message, bot):
+    if _admin_reply_ticket(message):
+        return await _handle_admin_ticket_reply(message, bot)
     if await _handle_user_state(message, bot):
         return
     if _is_admin(message.from_user.id) and await _handle_admin_input(message):
         return
-    await message.answer("📁 Раздел «Файл → конвертация» удалён. Используйте обычные видео, аудио, голосовые или кружки.")
+    if not _allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    mode = selected_mode.get(message.from_user.id)
+    mime = (message.document.mime_type or "").lower()
+    name = (message.document.file_name or "").lower()
+    is_video = mime.startswith("video/") or name.endswith((".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"))
+    is_audio = mime.startswith("audio/") or name.endswith((".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus"))
+    if is_video and mode == "video":
+        return await _video_to_circle(message, bot, message.document.file_id)
+    if is_video and mode == "video_mp3":
+        return await _media_to_mp3(message, bot, message.document.file_id, "video.mp4")
+    if is_video and mode == "transcribe":
+        return await _transcribe_message(message, bot, message.document.file_id, "video.mp4")
+    if is_audio and mode == "audio":
+        return await _audio_document_to_voice(message, bot)
+    if is_audio and mode == "voice_mp3":
+        return await _media_to_mp3(message, bot, message.document.file_id, "audio")
+    if is_audio and mode == "transcribe":
+        return await _transcribe_message(message, bot, message.document.file_id, "audio")
+    await message.answer("🎯 Выбранная функция не поддерживает этот файл.")
 
 @router.message()
 async def fallback(message: Message):
