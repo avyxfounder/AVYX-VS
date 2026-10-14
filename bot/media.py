@@ -102,8 +102,9 @@ async def make_image_video_note(src: Path, dst: Path, duration: int = 10, qualit
     await run_ffmpeg(
         "-loop", "1", "-i", str(src), "-t", str(max(10, min(60, duration))),
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
-        "-r", "15", "-an", "-c:v", "libx264", "-preset", "veryfast", "-threads", "2",
-        "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p", str(dst),
+        "-r", "10", "-an", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
+        "-crf", str(max(20, _crf(quality))), "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart", "-f", "mp4", str(dst),
     )
 
 async def make_voice(src: Path, dst: Path):
