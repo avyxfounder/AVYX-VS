@@ -388,16 +388,19 @@ async def document(message: Message, bot):
             await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO)
             await _status_update(status, "⚙️ <b>Конвертирую видео</b>\n" + _progress_bar(50) + " 50%")
             await make_video_note(src, dst, quality=quality.get(message.from_user.id, "maximum"))
+            src.unlink(missing_ok=True)
             await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
             if _too_large(dst):
                 raise MediaError("Результат больше лимита отправки.")
-            await message.answer_video_note(FSInputFile(dst), duration=max(1, min(60, round(duration))), length=512)
+            await message.answer_video_note(FSInputFile(dst), duration=max(1, min(60, round(duration))), length=640)
+            dst.unlink(missing_ok=True)
             await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
         else:
             dst = job / "voice.ogg"
             await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VOICE)
             await _status_update(status, "🎵 <b>Создаю голосовое</b>\n" + _progress_bar(50) + " 50%")
             await make_voice(src, dst)
+            src.unlink(missing_ok=True)
             await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
             if _too_large(dst):
                 raise MediaError("Результат больше лимита отправки.")
@@ -411,12 +414,18 @@ async def document(message: Message, bot):
 
 @router.message(F.voice)
 async def voice(message: Message):
+    if not access.allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
     await message.answer("🎙 Голосовое получено. 📝 Расшифровка речи будет доступна после подключения модуля.")
 
 @router.message(F.video_note)
 async def video_note(message: Message):
+    if not access.allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
     await message.answer("🎬 Видео-кружок получен. 📝 Расшифровка речи будет доступна после подключения модуля.")
 
 @router.message()
 async def fallback(message: Message):
+    if not access.allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
     await message.answer("📥 Выбери действие в меню или отправь видео, фото, аудио или файл.", reply_markup=menu(message.from_user.id))
