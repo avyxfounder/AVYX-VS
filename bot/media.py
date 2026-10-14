@@ -109,11 +109,16 @@ def _crf(quality: str) -> int:
 
 
 async def make_video_note(src: Path, dst: Path, quality: str = "maximum"):
+    # Keep the original audio when present. Telegram video notes can carry
+    # an audio stream; the old "-an" flag was the reason all circles were silent.
     await run_ffmpeg(
         "-i", str(src), "-t", "60",
+        "-map", "0:v:0", "-map", "0:a:0?",
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
-        "-an", "-c:v", "libx264", "-preset", "fast", "-threads", "0",
-        "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p", str(dst),
+        "-c:v", "libx264", "-preset", "veryfast", "-threads", "2",
+        "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000",
+        "-movflags", "+faststart", str(dst),
     )
 
 
@@ -121,7 +126,7 @@ async def make_image_video_note(src: Path, dst: Path, duration: int = 10, qualit
     await run_ffmpeg(
         "-loop", "1", "-i", str(src), "-t", str(max(10, min(60, duration))),
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
-        "-r", "15", "-an", "-c:v", "libx264", "-preset", "fast", "-threads", "0",
+        "-r", "15", "-an", "-c:v", "libx264", "-preset", "veryfast", "-threads", "2",
         "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p", str(dst),
     )
 
@@ -130,5 +135,5 @@ async def make_voice(src: Path, dst: Path):
     await run_ffmpeg(
         "-i", str(src), "-vn", "-map_metadata", "-1",
         "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
-        "-compression_level", "10", str(dst),
+        "-compression_level", "10", "-threads", "2", str(dst),
     )
