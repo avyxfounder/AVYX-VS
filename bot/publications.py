@@ -48,6 +48,8 @@ class PublicationManager:
             return self.get_news(int(pin.get("id")))
         if pin.get("kind") == "ad":
             return self.get_ad(str(pin.get("id")))
+        if pin.get("kind") == "bot_info":
+            return {"kind": "bot_info", "id": 0}
         return None
 
     def create_news(self, text: str, media_type: str | None, file_id: str | None, buttons=None):
