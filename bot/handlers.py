@@ -13,17 +13,19 @@ router = Router()
 settings: Settings | None = None
 access: AccessManager | None = None
 photo_duration: dict[int, int] = {}
+quality: dict[int, str] = {}
 
 
 
-def menu():
+def menu(user_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎥 Видео → кружок", callback_data="video_help")],
         [InlineKeyboardButton(text="🖼 Фото → кружок", callback_data="photo_settings")],
         [InlineKeyboardButton(text="🎵 Аудио → голосовое", callback_data="audio_help")],
         [InlineKeyboardButton(text="📁 Файл → конвертация", callback_data="file_help")],
-        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_menu")]
-    ])
+        [InlineKeyboardButton(text="📝 Расшифровка", callback_data="transcribe_info")],
+        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_menu")],
+    ] + ([ [InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")] ] if access and access.admin(user_id) else []))
 
 def back_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -154,7 +156,7 @@ async def back_menu_callback(callback: CallbackQuery):
     if not access.allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
-    await callback.message.edit_text(WELCOME, reply_markup=menu())
+    await callback.message.edit_text(WELCOME, reply_markup=menu(message.from_user.id))
 
 @router.callback_query(F.data.endswith("_help"))
 async def menu_help(callback: CallbackQuery):
@@ -181,12 +183,12 @@ WELCOME = (
 @router.message(CommandStart())
 async def start(message: Message):
     if not access.allowed(message.from_user.id): return await message.answer('🔒 Доступ закрыт. Обратитесь к администратору AVYX VS.')
-    await message.answer(WELCOME, reply_markup=menu())
+    await message.answer(WELCOME, reply_markup=menu(message.from_user.id))
 
 @router.message(Command("help"))
 async def help_cmd(message: Message):
     if not access.allowed(message.from_user.id): return await message.answer('🔒 Доступ закрыт.')
-    await message.answer(WELCOME, reply_markup=menu())
+    await message.answer(WELCOME, reply_markup=menu(message.from_user.id))
 
 async def _download(bot, file_id: str, dst: Path):
     tg_file = await bot.get_file(file_id)
@@ -226,6 +228,8 @@ async def _error(message: Message, exc: Exception):
 @router.message(F.photo)
 async def photo(message: Message, bot):
     if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    duration = photo_duration.get(message.from_user.id, 10)
+    q = quality.get(message.from_user.id, "maximum")
     status = await _status(message, "⏳ <b>Подготовка</b>\n" + _progress_bar(5) + " 5%")
     job = new_job_dir(settings.temp_dir)
     try:
@@ -235,11 +239,11 @@ async def photo(message: Message, bot):
         await _download(bot, message.photo[-1].file_id, src)
         await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
         await _status_update(status, "⚙️ <b>Создаю кружок</b>\n" + _progress_bar(50) + " 50%")
-        await make_image_video_note(src, dst, duration=photo_duration.get(message.from_user.id, 10))
+        await make_image_video_note(src, dst, duration=duration, quality=q)
         await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
-        await message.answer_video_note(FSInputFile(dst), duration=photo_duration.get(message.from_user.id, 10), length=640)
+        await message.answer_video_note(FSInputFile(dst), duration=duration, length=640)
         await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
@@ -265,12 +269,12 @@ async def video(message: Message, bot):
         if duration > 60.5:
             raise MediaError("Видео-кружок ограничен примерно 60 секундами.")
         await _status_update(status, "⚙️ <b>Конвертирую видео</b>\n" + _progress_bar(50) + " 50%")
-        await make_video_note(src, dst)
+        await make_video_note(src, dst, quality=quality.get(message.from_user.id, "maximum"))
         await _status_update(status, "📦 <b>Обработка завершена</b>\n" + _progress_bar(90) + " 90%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
         await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
-        await message.answer_video_note(FSInputFile(dst), duration=max(1, min(60, round(duration))), length=512)
+        await message.answer_video_note(FSInputFile(dst), duration=max(1, min(60, round(duration))), length=640)
         await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
@@ -313,7 +317,7 @@ async def document(message: Message, bot):
     name = (doc.file_name or "").lower()
     audio_ext = (".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".wma")
     video_ext = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".mpeg", ".mpg")
-    if not name.endswith(audio_ext + video_ext):
+    if not name.endswith(audio_ext) or name.endswith(video_ext):
         await message.answer("📎 Поддерживаются аудио/видео файлы. Отправь их как документ.")
         return
 
@@ -331,7 +335,7 @@ async def document(message: Message, bot):
                 raise MediaError("Видео-кружок ограничен примерно 60 секундами.")
             await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO)
             await _status_update(status, "⚙️ <b>Конвертирую видео</b>\n" + _progress_bar(50) + " 50%")
-            await make_video_note(src, dst)
+            await make_video_note(src, dst, quality=quality.get(message.from_user.id, "maximum"))
             await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
             if _too_large(dst):
                 raise MediaError("Результат больше лимита отправки.")
@@ -354,12 +358,12 @@ async def document(message: Message, bot):
 
 @router.message(F.voice)
 async def voice(message: Message):
-    await message.answer("🎙 Это уже голосовое сообщение. Пришли аудио, музыку или видео.")
+    await message.answer("🎙 Голосовое получено. 📝 Расшифровка речи будет доступна после подключения модуля.")
 
 @router.message(F.video_note)
 async def video_note(message: Message):
-    await message.answer("🎬 Это уже видео-кружок. Пришли обычное видео или изображение.")
+    await message.answer("🎬 Видео-кружок получен. 📝 Расшифровка речи будет доступна после подключения модуля.")
 
 @router.message()
 async def fallback(message: Message):
-    await message.answer("📥 Пришли видео, изображение, аудио или аудио/видео как документ. /help")
+    await message.answer("📥 Выбери действие в меню или отправь видео, фото, аудио или файл.", reply_markup=menu(message.from_user.id))
