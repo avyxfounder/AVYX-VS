@@ -45,7 +45,7 @@ class BotContent:
         self.save()
 
     def set_referral_text(self, text: str):
-        self.data["referral_text"] = text.strip() or DEFAULT_REFERRAL_TEXT
+        self.data["referral_text"] = (text.strip() or DEFAULT_REFERRAL_TEXT)[:1024]
         self.save()
 
     def set_referral_image(self, file_id: str | None):
@@ -53,7 +53,7 @@ class BotContent:
         self.save()
 
     def set_bot_info_text(self, text: str):
-        self.data["bot_info_text"] = text.strip() or DEFAULT_BOT_INFO
+        self.data["bot_info_text"] = (text.strip() or DEFAULT_BOT_INFO)[:1024]
         self.save()
 
     def set_bot_info_image(self, file_id: str | None):
