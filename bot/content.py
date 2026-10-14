@@ -3,17 +3,28 @@ from pathlib import Path
 
 DEFAULT_REFERRAL_TEXT = (
     "🤝 <b>Приглашаю тебя в AVYX VS!</b>\n\n"
-    "Медиа-бот для видео, фото, аудио, конвертации и расшифровки."
+    "Медиа-бот для видео, фото, аудио, конвертации и расшифровки.\n\n"
+    "🎁 За каждого нового пользователя по вашей ссылке — <b>+10 использований</b>."
 )
 DEFAULT_BOT_INFO = (
     "ℹ️ <b>AVYX VS</b>\n\n"
-    "Конвертация медиа, видео-кружков, аудио и расшифровка речи."
+    "Универсальный Telegram-бот для работы с медиа.\n\n"
+    "🎥 Видео → кружок\n"
+    "🖼 Фото → кружок\n"
+    "🎵 Аудио → голосовое\n"
+    "🎬 Видео → MP3\n"
+    "⭕ Кружок → MP3 / голосовое\n"
+    "🎙 Голос → MP3\n"
+    "📝 Расшифровка речи\n\n"
+    "⚡ Быстро, удобно и всё в одном боте.\n"
+    "🧹 Временные файлы удаляются автоматически."
 )
 DEFAULT_WELCOME = (
-    "👋 <b>AVYX VS</b>\n\n"
-    "Здесь можно бесплатно сделать первую обработку. "
-    "За каждого приглашённого пользователя вы получаете +10 использований.\n\n"
-    "🧹 Временные файлы удаляются автоматически."
+    "👋 <b>Добро пожаловать в AVYX VS!</b>\n\n"
+    "🎬 Конвертируй видео и аудио, создавай кружки и получай расшифровку.\n\n"
+    "🎁 Первый запуск — бесплатно.\n"
+    "🤝 За каждого приглашённого пользователя — <b>+10 использований</b>.\n\n"
+    "Выбери нужную функцию в меню ниже."
 )
 
 class BotContent:
@@ -53,6 +64,8 @@ class BotContent:
         self.data.setdefault("welcome_media_type", "photo" if self.data.get("bot_info_image") else None)
         self.data.setdefault("referral_media", self.data.get("referral_image"))
         self.data.setdefault("referral_media_type", "photo" if self.data.get("referral_image") else None)
+        self.data.setdefault("bot_info_text", DEFAULT_BOT_INFO)
+        self.data.setdefault("bot_info_image", None)
         self.save()
 
     def save(self):
