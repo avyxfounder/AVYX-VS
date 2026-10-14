@@ -158,7 +158,6 @@ async def photo(message: Message, bot):
         dst = job / "video_note.mp4"
         await _download(bot, message.photo[-1].file_id, src)
         await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
-        remove_file(src)
         await _status_update(status, "⚙️ <b>Создаю кружок</b>\n" + _progress_bar(50) + " 50%")
         await make_image_video_note(src, dst)
         await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
