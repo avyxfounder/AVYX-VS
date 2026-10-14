@@ -245,7 +245,7 @@ async def _error(message: Message, exc: Exception):
     text = str(exc) or "Не удалось обработать файл."
     if len(text) > 700:
         text = text[-700:]
-    await message.answer("❌ Не удалось обработать файл.\n<code>" + text + "</code>")
+    await message.answer("❌ Не удалось обработать файл.\n<code>" + text + "</code>", reply_parameters=ReplyParameters(message_id=message.message_id))
 
 def _admin_reply_ticket(message: Message):
     return bool(
@@ -348,14 +348,7 @@ async def _handle_user_state(message: Message, bot):
         drafts[uid]["buttons"] = []
         user_state[uid] = "ad_buttons"
         await message.answer(
-            "🔘 Кнопки рекламы (необязательно). Отправьте по одной строке: <code>Название | https://ссылка</code>\nМожно до 8. Если не нужны — отправьте <code>-</code>.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=f"1 час — {billing.ad_price(3600)} ⭐", callback_data="ad_duration:3600")],
-                [InlineKeyboardButton(text=f"6 часов — {billing.ad_price(21600)} ⭐", callback_data="ad_duration:21600")],
-                [InlineKeyboardButton(text=f"24 часа — {billing.ad_price(86400)} ⭐", callback_data="ad_duration:86400")],
-                [InlineKeyboardButton(text=f"3 дня — {billing.ad_price(259200)} ⭐", callback_data="ad_duration:259200")],
-                [InlineKeyboardButton(text=f"7 дней — {billing.ad_price(604800)} ⭐", callback_data="ad_duration:604800")],
-            ])
+            "🔘 Кнопки рекламы (необязательно). Отправьте по одной строке: <code>Название | https://ссылка</code>\nМожно до 8. Если не нужны — отправьте <code>-</code>."
         )
         return True
     if state == "ad_buttons":
