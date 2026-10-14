@@ -8,7 +8,7 @@ class PublicationManager:
     def __init__(self, path: str):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.data = {"news": [], "ads": [], "next_news": 1, "next_ad": 1}
+        self.data = {"news": [], "ads": [], "next_news": 1, "next_ad": 1, "internal_pin": None}
         self.load()
 
     def load(self):
@@ -21,6 +21,7 @@ class PublicationManager:
                 pass
         self.data.setdefault("news", [])
         self.data.setdefault("ads", [])
+        self.data.setdefault("internal_pin", None)
         self.save()
 
     def save(self):
@@ -31,12 +32,31 @@ class PublicationManager:
     def news(self, limit=10):
         return list(reversed(self.data["news"][-limit:]))
 
-    def create_news(self, text: str, media_type: str | None, file_id: str | None):
+    def set_internal_pin(self, kind: str, item_id):
+        self.data["internal_pin"] = {"kind": kind, "id": item_id}
+        self.save()
+
+    def clear_internal_pin(self):
+        self.data["internal_pin"] = None
+        self.save()
+
+    def get_internal_pin(self):
+        pin = self.data.get("internal_pin")
+        if not isinstance(pin, dict):
+            return None
+        if pin.get("kind") == "news":
+            return self.get_news(int(pin.get("id")))
+        if pin.get("kind") == "ad":
+            return self.get_ad(str(pin.get("id")))
+        return None
+
+    def create_news(self, text: str, media_type: str | None, file_id: str | None, buttons=None):
         item = {
             "id": int(self.data.get("next_news", 1)),
             "text": (text or "").strip(),
             "media_type": media_type,
             "file_id": file_id,
+            "buttons": buttons or [],
             "created_at": int(time.time()),
             "pinned": False,
             "messages": [],
@@ -55,7 +75,7 @@ class PublicationManager:
         self.data["news"] = [x for x in self.data["news"] if int(x["id"]) != int(news_id)]
         self.save()
 
-    def create_ad(self, user_id: int, text: str, media_type: str | None, file_id: str | None, duration_seconds: int, pin_requested: bool, price: int):
+    def create_ad(self, user_id: int, text: str, media_type: str | None, file_id: str | None, duration_seconds: int, pin_requested: bool, price: int, buttons=None):
         order_id = uuid.uuid4().hex[:12]
         item = {
             "id": order_id,
@@ -63,6 +83,7 @@ class PublicationManager:
             "text": (text or "").strip(),
             "media_type": media_type,
             "file_id": file_id,
+            "buttons": buttons or [],
             "duration_seconds": int(duration_seconds),
             "pin_requested": bool(pin_requested),
             "price": int(price),
@@ -107,6 +128,8 @@ class PublicationManager:
                     await bot.unpin_chat_message(chat_id=int(ad["publication_chat_id"]), message_id=int(ad["publication_message_id"]))
                 except Exception:
                     pass
+            if self.data.get("internal_pin", {}).get("kind") == "ad" and str(self.data.get("internal_pin", {}).get("id")) == str(ad.get("id")):
+                self.data["internal_pin"] = None
             ad["status"] = "expired"
             changed = True
         if changed:
