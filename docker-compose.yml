@@ -1,0 +1,8 @@
+services:
+  avyx-vs:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./temp:/app/temp
