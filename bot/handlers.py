@@ -246,7 +246,7 @@ async def _error(message: Message, exc: Exception):
     text = str(exc) or "Не удалось обработать файл."
     if len(text) > 700:
         text = text[-700:]
-    await message.answer("❌ Не удалось обработать файл.\n<code>" + text + "</code>", reply_parameters=ReplyParameters(message_id=message.message_id))
+    await message.answer("❌ Не удалось обработать файл.\n<code>" + text + "</code>")
 
 def _admin_reply_ticket(message: Message):
     return bool(
@@ -484,42 +484,42 @@ async def admin_button(message: Message):
 @router.message(F.text == "🎥 Видео → кружок")
 async def select_video(message: Message):
     selected_mode[message.from_user.id] = "video"
-    await message.answer("🎥 <b>Видео → кружок</b>\nОтправь видео до 60 секунд.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
+    await message.answer("🎥 <b>Видео → кружок</b>\nОтправь видео до 60 секунд.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "🖼 Фото → кружок")
 async def select_photo(message: Message):
     selected_mode[message.from_user.id] = "photo"
-    await message.answer("🖼 <b>Фото → кружок</b>\nОтправь фото. Длительность задаётся в настройках.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
+    await message.answer("🖼 <b>Фото → кружок</b>\nОтправь фото. Длительность задаётся в настройках.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "🎵 Аудио → голосовое")
 async def select_audio(message: Message):
     selected_mode[message.from_user.id] = "audio"
-    await message.answer("🎵 <b>Аудио → голосовое</b>\nОтправь аудио/музыку.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
+    await message.answer("🎵 <b>Аудио → голосовое</b>\nОтправь аудио/музыку.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "🎬 Видео → MP3")
 async def select_video_mp3(message: Message):
     selected_mode[message.from_user.id] = "video_mp3"
-    await message.answer("🎬 <b>Видео → MP3</b>\nОтправь видео — получишь MP3.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
+    await message.answer("🎬 <b>Видео → MP3</b>\nОтправь видео — получишь MP3.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "⭕ Кружок → MP3")
 async def select_circle_mp3(message: Message):
     selected_mode[message.from_user.id] = "circle_mp3"
-    await message.answer("⭕ <b>Кружок → MP3</b>\nОтправь видео-кружок — получишь MP3.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
+    await message.answer("⭕ <b>Кружок → MP3</b>\nОтправь видео-кружок — получишь MP3.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "⭕ Кружок → голосовое")
 async def select_circle_voice(message: Message):
     selected_mode[message.from_user.id] = "circle_voice"
-    await message.answer("⭕ <b>Кружок → голосовое</b>\nОтправь видео-кружок — получишь голосовое.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
+    await message.answer("⭕ <b>Кружок → голосовое</b>\nОтправь видео-кружок — получишь голосовое.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "🎙 Голос → MP3")
 async def select_voice_mp3(message: Message):
     selected_mode[message.from_user.id] = "voice_mp3"
-    await message.answer("🎙 <b>Голос → MP3</b>\nОтправь голосовое — получишь MP3.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
+    await message.answer("🎙 <b>Голос → MP3</b>\nОтправь голосовое — получишь MP3.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "📝 Расшифровка")
 async def select_transcribe(message: Message):
     selected_mode[message.from_user.id] = "transcribe"
-    await message.answer("📝 <b>Расшифровка</b>\nОтправь голосовое, кружок, видео или аудио.", reply_markup=menu(message.from_user.id), reply_parameters=ReplyParameters(message_id=message.message_id))
+    await message.answer("📝 <b>Расшифровка</b>\nОтправь голосовое, кружок, видео или аудио.", reply_markup=menu(message.from_user.id))
 
 @router.message(F.text == "❌ Сбросить функцию")
 async def reset_mode(message: Message):
