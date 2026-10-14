@@ -38,8 +38,8 @@ async def main():
     handlers.usage = UsageManager(settings.usage_db)
     handlers.billing = BillingManager(settings.billing_db)
     handlers.publications = PublicationManager(settings.publication_db)
-if not publications.data.get("internal_pin"):
-    publications.set_internal_pin("bot_info", 0)
+    if not handlers.publications.data.get("internal_pin"):
+        handlers.publications.set_internal_pin("bot_info", 0)
     handlers.support = SupportManager(settings.support_db)
     cleanup_stale_jobs(settings.temp_dir)
 
