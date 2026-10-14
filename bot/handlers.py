@@ -8,6 +8,7 @@ from .config import Settings
 from .media import MediaError, probe, duration_seconds, make_video_note, make_image_video_note, make_voice
 from .utils import new_job_dir, cleanup, remove_file
 from .access import AccessManager
+from .transcribe import transcribe
 
 router = Router()
 settings: Settings | None = None
@@ -181,7 +182,7 @@ async def transcribe_info(callback: CallbackQuery):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
     await callback.message.edit_text(
-        "📝 <b>Расшифровка</b>\n\nГолосовые, видео и кружки будут преобразовываться в текст. Модуль распознавания подключим следующим этапом.",
+        "📝 <b>Расшифровка</b>\n\nГолосовые, видео и кружки можно преобразовать в текст. Используется локальное распознавание речи.",
         reply_markup=back_menu()
     )
 
@@ -412,17 +413,41 @@ async def document(message: Message, bot):
     finally:
         cleanup(job)
 
-@router.message(F.voice)
-async def voice(message: Message):
+async def _transcribe_message(message: Message, bot, file_id: str, filename: str):
     if not access.allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
-    await message.answer("🎙 Голосовое получено. 📝 Расшифровка речи будет доступна после подключения модуля.")
+    if getattr(message, "voice", None) and message.voice.file_size and message.voice.file_size > settings.max_download_mb * 1024 * 1024:
+        return await message.answer(f"❌ Файл больше {settings.max_download_mb} МБ.")
+    status = await _status(message, "📝 <b>Подготовка расшифровки</b>\n" + _progress_bar(10) + " 10%")
+    job = new_job_dir(settings.temp_dir)
+    try:
+        src = job / filename
+        await _download(bot, file_id, src)
+        await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
+        await _status_update(status, "🧠 <b>Распознаю речь</b>\n" + _progress_bar(60) + " 60%")
+        text = await transcribe(src)
+        await _status_update(status, "📤 <b>Формирую результат</b>\n" + _progress_bar(90) + " 90%")
+        if len(text) > 3800:
+            for i in range(0, len(text), 3800):
+                await message.answer("📝 " + text[i:i + 3800])
+        else:
+            await message.answer("📝 <b>Расшифровка</b>\n\n" + text)
+        await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
+    except Exception as exc:
+        await _error(message, exc)
+    finally:
+        cleanup(job)
+
+
+@router.message(F.voice)
+async def voice(message: Message, bot):
+    return await _transcribe_message(message, bot, message.voice.file_id, "voice.ogg")
+
 
 @router.message(F.video_note)
-async def video_note(message: Message):
-    if not access.allowed(message.from_user.id):
-        return await message.answer("🔒 Доступ закрыт.")
-    await message.answer("🎬 Видео-кружок получен. 📝 Расшифровка речи будет доступна после подключения модуля.")
+async def video_note(message: Message, bot):
+    return await _transcribe_message(message, bot, message.video_note.file_id, "video_note.mp4")
+
 
 @router.message()
 async def fallback(message: Message):
