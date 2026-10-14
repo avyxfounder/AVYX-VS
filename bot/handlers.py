@@ -64,7 +64,8 @@ async def _mode_required(message: Message, mode: str) -> bool:
     else:
         await message.answer("🎯 <b>Сначала выбери функцию.</b>\n\nБез выбора режима бот ничего не обрабатывает.", reply_markup=menu(message.from_user.id))
     return False
-\ndef back_menu():
+
+def back_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_menu")]
     ])
@@ -170,7 +171,8 @@ async def mode_select_callback(callback: CallbackQuery):
         "transcribe": "📝 <b>Расшифровка</b>\n\nТеперь отправь голосовое, кружок, видео или аудио — бот преобразует речь в текст.",
     }
     await callback.message.edit_text(texts[mode] + "\n\n🔒 Пока эта функция выбрана, другие типы файлов не обрабатываются.", reply_markup=mode_menu(mode))
-\n@router.message(Command("text"))
+
+@router.message(Command("text"))
 async def text_command(message: Message, bot):
     if not access.allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
