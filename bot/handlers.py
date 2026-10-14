@@ -595,7 +595,10 @@ async def photo(message: Message, bot):
 
 @router.message(F.video)
 async def video(message: Message, bot):
-    if not _allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not _allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    if selected_mode.get(message.from_user.id) == "transcribe":
+        return await _transcribe_message(message, bot, message.video.file_id, "video.mp4")
     if not await _mode_required(message, "video"):
         return
     if message.video.file_size and message.video.file_size > settings.max_download_mb * 1024 * 1024:
@@ -630,7 +633,10 @@ async def video(message: Message, bot):
 
 @router.message(F.audio)
 async def audio(message: Message, bot):
-    if not _allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not _allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    if selected_mode.get(message.from_user.id) == "transcribe":
+        return await _transcribe_message(message, bot, message.audio.file_id, "audio.mp3")
     if not await _mode_required(message, "audio"):
         return
     if message.audio.file_size and message.audio.file_size > settings.max_download_mb * 1024 * 1024:
@@ -673,6 +679,10 @@ async def document(message: Message, bot):
     if not name.endswith(audio_ext) and not name.endswith(video_ext):
         await message.answer("📎 Поддерживаются аудио/видео файлы. Отправь их как документ.")
         return
+
+    if selected_mode.get(message.from_user.id) == "transcribe":
+        filename = Path(doc.file_name or "media.bin").name
+        return await _transcribe_message(message, bot, doc.file_id, filename)
 
     status = await _status(message, "⏳ <b>Подготовка</b>\n" + _progress_bar(5) + " 5%")
     job = new_job_dir(settings.temp_dir)
