@@ -239,7 +239,7 @@ async def photo(message: Message, bot):
         await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
-        await message.answer_video_note(FSInputFile(dst), duration=2, length=640)
+        await message.answer_video_note(FSInputFile(dst), duration=photo_duration.get(message.from_user.id, 10), length=640)
         await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
