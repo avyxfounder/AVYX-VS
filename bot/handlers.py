@@ -1,7 +1,7 @@
 from pathlib import Path
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from aiogram.enums import ChatAction
 
 from .config import Settings
@@ -54,6 +54,13 @@ def mode_menu(current: str | None = None):
     if current:
         rows.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+async def _send_main_menu(message: Message, text: str = WELCOME):
+    if not _allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    await message.answer("⌨️ Обновляю меню…", reply_markup=ReplyKeyboardRemove())
+    return await message.answer(text, reply_markup=menu(message.from_user.id))
+
 
 def mode_prompt(user_id: int):
     current = selected_mode.get(user_id)
@@ -461,7 +468,7 @@ async def back_menu_callback(callback: CallbackQuery):
     if not _allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
-    await callback.message.edit_text(WELCOME, reply_markup=menu(callback.from_user.id))
+    await callback.message.answer(WELCOME, reply_markup=menu(callback.from_user.id))
 
 @router.callback_query(F.data.endswith("_help"))
 async def menu_help(callback: CallbackQuery):
@@ -504,7 +511,13 @@ async def start(message: Message):
                 await message.answer(ref_text)
     if not _allowed(uid):
         return await message.answer("🔒 Доступ закрыт. Обратитесь к администратору AVYX VS.")
-    await message.answer(WELCOME, reply_markup=menu(uid))
+    await _send_main_menu(message)
+
+@router.message(Command("menu"))
+async def menu_cmd(message: Message):
+    selected_mode.pop(message.from_user.id, None)
+    admin_edit_state.pop(message.from_user.id, None)
+    await _send_main_menu(message)
 
 @router.message(Command("help"))
 async def help_cmd(message: Message):
