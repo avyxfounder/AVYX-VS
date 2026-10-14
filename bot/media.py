@@ -16,11 +16,10 @@ class MediaError(RuntimeError):
     pass
 
 ProgressCallback = Callable[[float], Awaitable[None]]
+FFMPEG_CONCURRENCY = 1
+_ffmpeg_slots = asyncio.Semaphore(FFMPEG_CONCURRENCY)
 
 def _ffmpeg_bin() -> str:
-    # На хостинге сначала используем системный FFmpeg (обычно он
-    # собран с полноценным H.264/libx264), а bundled FFmpeg оставляем
-    # запасным вариантом.
     path = shutil.which("ffmpeg")
     if path:
         return path
@@ -31,21 +30,21 @@ def _ffmpeg_bin() -> str:
             pass
     raise MediaError("FFmpeg не найден на сервере.")
 
-
 async def run_ffmpeg(*args: str, progress: ProgressCallback | None = None):
-    proc = await asyncio.create_subprocess_exec(
-        _ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-y", *args,
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        _, err = await asyncio.wait_for(proc.communicate(), timeout=180)
-    except asyncio.TimeoutError as exc:
-        proc.kill()
-        await proc.communicate()
-        raise MediaError("Обработка заняла слишком много времени и была остановлена.") from exc
-    if proc.returncode:
-        details = err.decode("utf-8", errors="replace").strip()
-        raise MediaError(details or "Не удалось обработать файл.")
+    async with _ffmpeg_slots:
+        proc = await asyncio.create_subprocess_exec(
+            _ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-y", *args,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, err = await asyncio.wait_for(proc.communicate(), timeout=180)
+        except asyncio.TimeoutError as exc:
+            proc.kill()
+            await proc.communicate()
+            raise MediaError("Обработка заняла слишком много времени и была остановлена.") from exc
+        if proc.returncode:
+            details = err.decode("utf-8", errors="replace").strip()
+            raise MediaError(details or "Не удалось обработать файл.")
 
 async def probe(path: Path) -> dict:
     if av is not None:
@@ -92,7 +91,7 @@ async def make_video_note(src: Path, dst: Path, quality: str = "maximum"):
         "-i", str(src), "-t", "60", "-map", "0:v:0", "-map", "0:a:0?",
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
         "-r", "30", "-c:v", "libx264", "-profile:v", "high", "-level:v", "3.1",
-        "-preset", "veryfast", "-threads", "2",
+        "-preset", "veryfast", "-threads", "1",
         "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000",
         "-movflags", "+faststart", "-f", "mp4", str(dst),
@@ -111,12 +110,12 @@ async def make_voice(src: Path, dst: Path):
     await run_ffmpeg(
         "-i", str(src), "-vn", "-map_metadata", "-1",
         "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
-        "-compression_level", "10", "-threads", "2", "-vn", str(dst),
+        "-compression_level", "10", "-threads", "1", "-vn", str(dst),
     )
 
 async def make_mp3(src: Path, dst: Path):
     await run_ffmpeg(
         "-i", str(src), "-vn", "-map", "0:a:0",
-        "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000", "-threads", "2",
+        "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000", "-threads", "1",
         "-map_metadata", "-1", str(dst),
     )
