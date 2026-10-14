@@ -55,9 +55,11 @@ def mode_menu(current: str | None = None):
         rows.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-async def _send_main_menu(message: Message, text: str = WELCOME):
+async def _send_main_menu(message: Message, text: str | None = None):
     if not _allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
+    if text is None:
+        text = WELCOME
     await message.answer("⌨️ Обновляю меню…", reply_markup=ReplyKeyboardRemove())
     return await message.answer(text, reply_markup=menu(message.from_user.id))
 
