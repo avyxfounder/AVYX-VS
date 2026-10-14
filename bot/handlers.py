@@ -15,20 +15,41 @@ settings: Settings | None = None
 access: AccessManager | None = None
 photo_duration: dict[int, int] = {}
 quality: dict[int, str] = {}
+selected_mode: dict[int, str] = {}
 
 
 
 def menu(user_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎥 Видео → кружок", callback_data="video_help")],
-        [InlineKeyboardButton(text="🖼 Фото → кружок", callback_data="photo_settings")],
-        [InlineKeyboardButton(text="🎵 Аудио → голосовое", callback_data="audio_help")],
-        [InlineKeyboardButton(text="📁 Файл → конвертация", callback_data="file_help")],
-        [InlineKeyboardButton(text="📝 Расшифровка", callback_data="transcribe_info")],
+        [InlineKeyboardButton(text="🎥 Видео → кружок", callback_data="mode:video")],
+        [InlineKeyboardButton(text="🖼 Фото → кружок", callback_data="mode:photo")],
+        [InlineKeyboardButton(text="🎵 Аудио → голосовое", callback_data="mode:audio")],
+        [InlineKeyboardButton(text="📁 Файл → конвертация", callback_data="mode:file")],
+        [InlineKeyboardButton(text="📝 Расшифровка", callback_data="mode:transcribe")],
         [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_menu")],
     ] + ([ [InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")] ] if access and access.admin(user_id) else []))
 
-def back_menu():
+
+def mode_menu(current: str | None = None):
+    labels = {
+        "video": "🎥 Видео → кружок",
+        "photo": "🖼 Фото → кружок",
+        "audio": "🎵 Аудио → голосовое",
+        "file": "📁 Файл → конвертация",
+        "transcribe": "📝 Расшифровка",
+    }
+    rows = []
+    for key, label in labels.items():
+        rows.append([InlineKeyboardButton(text=("✅ " if current == key else "") + label, callback_data=f"mode:{key}")])
+    rows.append([InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_menu")])
+    if current:
+        rows.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def mode_prompt(user_id: int):
+    current = selected_mode.get(user_id)
+    return "🎯 <b>Выбери функцию</b>\n\nПосле выбора бот будет принимать только соответствующий тип файла.\n\n" + (f"Сейчас выбрано: <b>{current}</b>" if current else "Сейчас функция не выбрана.")
+\ndef back_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_menu")]
     ])
@@ -65,7 +86,23 @@ def admin_menu():
         [InlineKeyboardButton(text="📋 Пользователи", callback_data="admin_users")]
     ])
 
-@router.message(Command("text"))
+
+@router.callback_query(F.data.startswith("mode:"))
+async def mode_select_callback(callback: CallbackQuery):
+    if not access.allowed(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    mode = callback.data.split(":", 1)[1]
+    selected_mode[callback.from_user.id] = mode
+    await callback.answer("Функция выбрана")
+    texts = {
+        "video": "🎥 <b>Видео → кружок</b>\n\nТеперь отправь видео. Другие типы файлов будут отклонены.",
+        "photo": "🖼 <b>Фото → кружок</b>\n\nТеперь отправь изображение. Другие типы файлов будут отклонены.",
+        "audio": "🎵 <b>Аудио → голосовое</b>\n\nТеперь отправь аудио или музыку. Другие типы файлов будут отклонены.",
+        "file": "📁 <b>Файл → конвертация</b>\n\nТеперь отправь аудио или видео именно как файл.",
+        "transcribe": "📝 <b>Расшифровка</b>\n\nТеперь отправь голосовое, кружок, видео или аудио — бот преобразует речь в текст.",
+    }
+    await callback.message.edit_text(texts[mode], reply_markup=mode_menu(mode))
+\n@router.message(Command("text"))
 async def text_command(message: Message, bot):
     if not access.allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
@@ -470,4 +507,4 @@ async def video_note(message: Message, bot):
 async def fallback(message: Message):
     if not access.allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
-    await message.answer("📥 Выбери действие в меню или отправь видео, фото, аудио или файл.", reply_markup=menu(message.from_user.id))
+    await message.answer("🎯 <b>Сначала выбери функцию в меню.</b>\n\nПока функция не выбрана, файлы не обрабатываются.", reply_markup=menu(message.from_user.id))
