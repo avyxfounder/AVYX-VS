@@ -1225,7 +1225,7 @@ async def _audio_document_to_voice(message: Message, bot):
     status = await _status(message, "⏳ " + _progress_bar(5) + " 5%")
     try:
         src, dst = job / "audio", job / "voice.ogg"
-        await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_AUDIO)
+        await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VOICE)
         await _download(bot, message.document.file_id, src)
         await _status_update(status, "🎵 Создаю голосовое " + _progress_bar(65))
         await make_voice(src, dst)
