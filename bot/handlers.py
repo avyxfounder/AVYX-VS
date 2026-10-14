@@ -121,6 +121,26 @@ async def _download(bot, file_id: str, dst: Path):
 def _too_large(path: Path) -> bool:
     return path.stat().st_size > settings.max_output_mb * 1024 * 1024
 
+
+async def _status(message: Message, text: str):
+    try:
+        return await message.answer(text)
+    except Exception:
+        return None
+
+async def _status_update(status: Message | None, text: str):
+    if status is None:
+        return
+    try:
+        await status.edit_text(text)
+    except Exception:
+        pass
+
+def _progress_bar(percent: int) -> str:
+    percent = max(0, min(100, percent))
+    filled = percent // 10
+    return "█" * filled + "░" * (10 - filled)
+
 async def _error(message: Message, exc: Exception):
     text = str(exc) or "Не удалось обработать файл."
     if len(text) > 700:
@@ -130,16 +150,21 @@ async def _error(message: Message, exc: Exception):
 @router.message(F.photo)
 async def photo(message: Message, bot):
     if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    status = await _status(message, "⏳ <b>Подготовка</b>\n" + _progress_bar(5) + " 5%")
     job = new_job_dir(settings.temp_dir)
     try:
         await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO)
         src = job / "input.jpg"
         dst = job / "video_note.mp4"
         await _download(bot, message.photo[-1].file_id, src)
+        await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
+        await _status_update(status, "⚙️ <b>Создаю кружок</b>\n" + _progress_bar(50) + " 50%")
         await make_image_video_note(src, dst)
+        await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
         await message.answer_video_note(FSInputFile(dst), duration=2, length=1080)
+        await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
     finally:
@@ -151,20 +176,26 @@ async def video(message: Message, bot):
     if message.video.file_size and message.video.file_size > settings.max_download_mb * 1024 * 1024:
         await message.answer("❌ Файл больше " + str(settings.max_download_mb) + " МБ. Для больших файлов позже подключим Local Bot API.")
         return
+    status = await _status(message, "⏳ <b>Подготовка</b>\n" + _progress_bar(5) + " 5%")
     job = new_job_dir(settings.temp_dir)
     try:
         await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO)
         src = job / "input"
         dst = job / "video_note.mp4"
         await _download(bot, message.video.file_id, src)
+        await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
         info = await probe(src)
         duration = duration_seconds(info)
         if duration > 60.5:
             raise MediaError("Видео-кружок ограничен примерно 60 секундами.")
+        await _status_update(status, "⚙️ <b>Конвертирую видео</b>\n" + _progress_bar(50) + " 50%")
         await make_video_note(src, dst)
+        await _status_update(status, "📦 <b>Обработка завершена</b>\n" + _progress_bar(90) + " 90%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
+        await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
         await message.answer_video_note(FSInputFile(dst), duration=max(1, min(60, round(duration))), length=512)
+        await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
     finally:
@@ -176,16 +207,21 @@ async def audio(message: Message, bot):
     if message.audio.file_size and message.audio.file_size > settings.max_download_mb * 1024 * 1024:
         await message.answer("❌ Файл больше " + str(settings.max_download_mb) + " МБ.")
         return
+    status = await _status(message, "⏳ <b>Подготовка</b>\n" + _progress_bar(5) + " 5%")
     job = new_job_dir(settings.temp_dir)
     try:
         await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VOICE)
         src = job / "input"
         dst = job / "voice.ogg"
         await _download(bot, message.audio.file_id, src)
+        await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
+        await _status_update(status, "🎵 <b>Создаю голосовое</b>\n" + _progress_bar(50) + " 50%")
         await make_voice(src, dst)
+        await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
         await message.answer_voice(FSInputFile(dst))
+        await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
     finally:
@@ -205,10 +241,12 @@ async def document(message: Message, bot):
         await message.answer("📎 Поддерживаются аудио/видео файлы. Отправь их как документ.")
         return
 
+    status = await _status(message, "⏳ <b>Подготовка</b>\n" + _progress_bar(5) + " 5%")
     job = new_job_dir(settings.temp_dir)
     try:
         src = job / (Path(doc.file_name or "input").name)
         await _download(bot, doc.file_id, src)
+        await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
         if name.endswith(video_ext):
             dst = job / "video_note.mp4"
             info = await probe(src)
@@ -216,17 +254,23 @@ async def document(message: Message, bot):
             if duration > 60.5:
                 raise MediaError("Видео-кружок ограничен примерно 60 секундами.")
             await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO)
+            await _status_update(status, "⚙️ <b>Конвертирую видео</b>\n" + _progress_bar(50) + " 50%")
             await make_video_note(src, dst)
+            await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
             if _too_large(dst):
                 raise MediaError("Результат больше лимита отправки.")
             await message.answer_video_note(FSInputFile(dst), duration=max(1, min(60, round(duration))), length=512)
+            await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
         else:
             dst = job / "voice.ogg"
             await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VOICE)
+            await _status_update(status, "🎵 <b>Создаю голосовое</b>\n" + _progress_bar(50) + " 50%")
             await make_voice(src, dst)
+            await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
             if _too_large(dst):
                 raise MediaError("Результат больше лимита отправки.")
             await message.answer_voice(FSInputFile(dst))
+            await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
     finally:
