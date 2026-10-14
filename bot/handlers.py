@@ -109,6 +109,7 @@ def settings_menu(user_id: int):
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📰 Новости", callback_data="admin_news")],
+        [InlineKeyboardButton(text="📌 Снять внутренний закреп", callback_data="admin_unpin")],
         [InlineKeyboardButton(text="📢 Реклама", callback_data="admin_ads")],
         [InlineKeyboardButton(text="💳 Stars и подписка", callback_data="admin_billing")],
         [InlineKeyboardButton(text="🔐 Внешние реквизиты", callback_data="admin_external")],
@@ -874,6 +875,9 @@ async def admin_callback(callback: CallbackQuery):
     uid = callback.from_user.id
     if data == "admin_back":
         return await callback.message.edit_text("👑 <b>Админ-панель</b>", reply_markup=admin_menu())
+    if data == "admin_unpin":
+        publications.clear_internal_pin()
+        return await callback.message.edit_text("✅ Внутренний закреп снят.", reply_markup=admin_menu())
     if data in ("admin_grant_sub", "admin_revoke_sub"):
         admin_state[uid] = "grant_sub_id" if data == "admin_grant_sub" else "revoke_sub_id"
         return await callback.message.answer("Отправьте Telegram ID пользователя числом.")
