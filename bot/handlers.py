@@ -65,6 +65,23 @@ def admin_menu():
         [InlineKeyboardButton(text="📋 Пользователи", callback_data="admin_users")]
     ])
 
+@router.message(Command("text"))
+async def text_command(message: Message, bot):
+    if not access.allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    replied = message.reply_to_message
+    if not replied:
+        return await message.answer("📝 Ответь командой /text на голосовое, кружок или видео.")
+    if replied.voice:
+        return await _transcribe_message(message, bot, replied.voice.file_id, "voice.ogg")
+    if replied.video_note:
+        return await _transcribe_message(message, bot, replied.video_note.file_id, "video_note.mp4")
+    if replied.video:
+        return await _transcribe_message(message, bot, replied.video.file_id, "video.mp4")
+    if replied.audio:
+        return await _transcribe_message(message, bot, replied.audio.file_id, "audio.mp3")
+    return await message.answer("📝 Поддерживаются голосовые, видео-кружки, видео и аудио.")
+
 @router.message(Command("admin"))
 async def admin_cmd(message: Message):
     if not access.admin(message.from_user.id):
