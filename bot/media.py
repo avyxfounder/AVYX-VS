@@ -79,7 +79,7 @@ async def make_video_note(src: Path, dst: Path):
     await run_ffmpeg(
         "-i", str(src),
         "-t", "60",
-        "-vf", "scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080,setsar=1",
+        "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
         "-an",
         "-c:v", "libx264",
         "-preset", "medium",
@@ -90,12 +90,12 @@ async def make_video_note(src: Path, dst: Path):
     )
 
 
-async def make_image_video_note(src: Path, dst: Path):
+async def make_image_video_note(src: Path, dst: Path, duration: int = 10):
     await run_ffmpeg(
         "-loop", "1",
         "-i", str(src),
         "-t", "2",
-        "-vf", "scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080,setsar=1",
+        "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
         "-an",
         "-c:v", "libx264",
         "-preset", "medium",
