@@ -13,10 +13,14 @@ class Settings:
     owner_id: int = int(os.getenv("OWNER_ID", "8710132959"))
     access_db: str = os.getenv("ACCESS_DB", "data/access.json")
     content_db: str = os.getenv("CONTENT_DB", "data/content.json")
+    usage_db: str = os.getenv("USAGE_DB", "data/usage.json")
+    billing_db: str = os.getenv("BILLING_DB", "data/billing.json")
+    publication_db: str = os.getenv("PUBLICATION_DB", "data/publications.json")
+    support_db: str = os.getenv("SUPPORT_DB", "data/support.json")
 
     @classmethod
     def from_env(cls) -> "Settings":
         token = os.getenv("BOT_TOKEN", "").strip()
         if not token or token == "PASTE_YOUR_BOT_TOKEN_HERE":
-            raise RuntimeError("BOT_TOKEN is not set. Copy .env.example to .env and add your BotFather token.")
+            raise RuntimeError("BOT_TOKEN is not set.")
         return cls(bot_token=token)
