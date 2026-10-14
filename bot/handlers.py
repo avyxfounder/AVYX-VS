@@ -109,7 +109,6 @@ def settings_menu(user_id: int):
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📰 Новости", callback_data="admin_news")],
-        [InlineKeyboardButton(text="📌 Чат для закрепов", callback_data="admin_set_pub_chat")],
         [InlineKeyboardButton(text="📢 Реклама", callback_data="admin_ads")],
         [InlineKeyboardButton(text="💳 Stars и подписка", callback_data="admin_billing")],
         [InlineKeyboardButton(text="🔐 Внешние реквизиты", callback_data="admin_external")],
@@ -349,7 +348,7 @@ async def _handle_user_state(message: Message, bot):
         drafts[uid]["buttons"] = []
         user_state[uid] = "ad_buttons"
         await message.answer(
-            "🔘 Кнопки рекламы (необязательно). Отправьте по одной строке: <code>Название | https://ссылка</code>\nМожно до 8. Если не нужны — отправьте <code>-</code>."
+            "🔘 Кнопки рекламы (необязательно). Отправьте по одной строке: <code>Название | https://ссылка</code>\nМожно до 8. Если не нужны — отправьте <code>-</code>.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=f"1 час — {billing.ad_price(3600)} ⭐", callback_data="ad_duration:3600")],
                 [InlineKeyboardButton(text=f"6 часов — {billing.ad_price(21600)} ⭐", callback_data="ad_duration:21600")],
@@ -384,15 +383,9 @@ async def _handle_user_state(message: Message, bot):
         return True
     if state == "news_message" and _is_admin(uid):
         media_type, file_id, text = _extract_media(message)
-        item = publications.create_news(text, media_type, file_id)
-        admin_state[uid] = f"news_pin:{item['id']}"
-        await message.answer(
-            "📰 Новость создана. Закрепить в указанном канале/группе публикаций?",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📌 С закрепом", callback_data=f"news_pin:{item['id']}:yes")],
-                [InlineKeyboardButton(text="Без закрепа", callback_data=f"news_pin:{item['id']}:no")],
-            ])
-        )
+        item = publications.create_news(text, media_type, file_id, [])
+        admin_state[uid] = f"news_buttons:{item['id']}"
+        await message.answer("🔘 Кнопки новости (необязательно). Формат: <code>Название | https://ссылка</code>\nДо 8 кнопок. Если не нужны — отправьте <code>-</code>.")
         return True
     return False
 
@@ -415,26 +408,12 @@ async def _publish_news(bot, item, pin_requested: bool):
     item["messages"] = sent
     if pin_requested:
         publications.set_internal_pin("news", item["id"])
-    pub_chat = content.get("publication_chat_id")
-    if pub_chat:
-        try:
-            msg = await _send_custom_media(bot, int(pub_chat), item.get("text", ""), item.get("media_type"), item.get("file_id"), reply_markup=_url_keyboard(item.get("buttons", [])))
-            item["publication_message_id"] = msg.message_id
-            item["publication_chat_id"] = int(pub_chat)
-            if pin_requested:
-                try:
-                    await bot.pin_chat_message(chat_id=int(pub_chat), message_id=msg.message_id, disable_notification=True)
-                    item["pinned"] = True
-                except Exception:
-                    pass
-        except Exception:
-            pass
     publications.save()
 
 async def _publish_ad(bot, item):
     sent = await _broadcast(
         bot, access.list_users(), item.get("text", ""),
-        item.get("media_type"), item.get("file_id")
+        item.get("media_type"), item.get("file_id"), item.get("buttons", [])
     )
     item["messages"] = sent
     item["status"] = "active"
@@ -442,19 +421,6 @@ async def _publish_ad(bot, item):
     item["expires_at"] = int(time.time()) + int(item["duration_seconds"])
     if item.get("pin_requested"):
         publications.set_internal_pin("ad", item["id"])
-    pub_chat = content.get("publication_chat_id")
-    if pub_chat:
-        try:
-            msg = await _send_custom_media(bot, int(pub_chat), item.get("text", ""), item.get("media_type"), item.get("file_id"))
-            item["publication_message_id"] = msg.message_id
-            item["publication_chat_id"] = int(pub_chat)
-            if item.get("pin_requested"):
-                try:
-                    await bot.pin_chat_message(chat_id=int(pub_chat), message_id=msg.message_id, disable_notification=True)
-                except Exception:
-                    pass
-        except Exception:
-            pass
     publications.save()
 
 @router.message(CommandStart())
@@ -1015,9 +981,6 @@ async def admin_callback(callback: CallbackQuery):
     if data == "admin_info_image_clear":
         content.set_bot_info_image(None)
         return await callback.message.answer("✅ Картинка удалена.", reply_markup=admin_menu())
-    if data == "admin_set_pub_chat":
-        admin_state[uid] = "set_pub_chat"
-        return await callback.message.answer("Отправьте ID группы/канала для публикаций (например, -1001234567890). Бот должен быть администратором для закрепа.")
     if data == "admin_news":
         admin_state.pop(uid, None)
         buttons = [[InlineKeyboardButton(text="➕ Опубликовать новость", callback_data="admin_news_create")]]
