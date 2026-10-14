@@ -18,12 +18,14 @@ class MediaError(RuntimeError):
 ProgressCallback = Callable[[float], Awaitable[None]]
 
 def _ffmpeg_bin() -> str:
-    if imageio_ffmpeg is not None:
-        return imageio_ffmpeg.get_ffmpeg_exe()
+    # Сначала используем системный FFmpeg хостинга, если он доступен.
+    # Если его нет — используем FFmpeg из imageio-ffmpeg.
     path = shutil.which("ffmpeg")
     if path:
         return path
-    raise MediaError("FFmpeg не найден на сервере.")
+    if imageio_ffmpeg is not None:
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    raise MediaError("FFmpeg не найден на сервере. Установите FFmpeg или пакет imageio-ffmpeg.")
 
 async def run_ffmpeg(*args: str, progress: ProgressCallback | None = None):
     proc = await asyncio.create_subprocess_exec(
@@ -102,12 +104,12 @@ async def make_voice(src: Path, dst: Path):
     await run_ffmpeg(
         "-i", str(src), "-vn", "-map_metadata", "-1",
         "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
-        "-compression_level", "10", "-threads", "2", str(dst),
+        "-compression_level", "10", "-threads", "2", "-vn", str(dst),
     )
 
 async def make_mp3(src: Path, dst: Path):
     await run_ffmpeg(
         "-i", str(src), "-vn", "-map", "0:a:0",
-        "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000",
+        "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000", "-threads", "2",
         "-map_metadata", "-1", str(dst),
     )
