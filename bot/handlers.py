@@ -1,7 +1,7 @@
 from pathlib import Path
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ChatAction
 
 from .config import Settings
@@ -20,14 +20,15 @@ selected_mode: dict[int, str] = {}
 
 
 def menu(user_id: int):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎥 Видео → кружок", callback_data="mode:video")],
-        [InlineKeyboardButton(text="🖼 Фото → кружок", callback_data="mode:photo")],
-        [InlineKeyboardButton(text="🎵 Аудио → голосовое", callback_data="mode:audio")],
-        [InlineKeyboardButton(text="📁 Файл → конвертация", callback_data="mode:file")],
-        [InlineKeyboardButton(text="📝 Расшифровка", callback_data="mode:transcribe")],
-        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_menu")],
-    ] + ([ [InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")] ] if access and access.admin(user_id) else []))
+    rows = [
+        [KeyboardButton(text="🎥 Видео → кружок"), KeyboardButton(text="🖼 Фото → кружок")],
+        [KeyboardButton(text="🎵 Аудио → голосовое"), KeyboardButton(text="📁 Файл → конвертация")],
+        [KeyboardButton(text="📝 Расшифровка"), KeyboardButton(text="👤 Профиль")],
+        [KeyboardButton(text="⚙️ Настройки")],
+    ]
+    if access and access.admin(user_id):
+        rows.append([KeyboardButton(text="👑 Админ-панель")])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True, input_field_placeholder="Выберите функцию…")
 
 
 def mode_menu(current: str | None = None):
@@ -100,6 +101,59 @@ def admin_menu():
         [InlineKeyboardButton(text="📋 Пользователи", callback_data="admin_users")]
     ])
 
+
+@router.message(F.text == "🎥 Видео → кружок")
+async def select_video_mode(message: Message):
+    if access.allowed(message.from_user.id):
+        selected_mode[message.from_user.id] = "video"
+        await message.answer("🎥 <b>Видео → кружок</b>\n\nТеперь отправь видео. Другие типы файлов не обрабатываются.", reply_markup=menu(message.from_user.id))
+
+@router.message(F.text == "🖼 Фото → кружок")
+async def select_photo_mode(message: Message):
+    if access.allowed(message.from_user.id):
+        selected_mode[message.from_user.id] = "photo"
+        await message.answer("🖼 <b>Фото → кружок</b>\n\nТеперь отправь изображение. Другие типы файлов не обрабатываются.", reply_markup=menu(message.from_user.id))
+
+@router.message(F.text == "🎵 Аудио → голосовое")
+async def select_audio_mode(message: Message):
+    if access.allowed(message.from_user.id):
+        selected_mode[message.from_user.id] = "audio"
+        await message.answer("🎵 <b>Аудио → голосовое</b>\n\nТеперь отправь аудио или музыку.", reply_markup=menu(message.from_user.id))
+
+@router.message(F.text == "📁 Файл → конвертация")
+async def select_file_mode(message: Message):
+    if access.allowed(message.from_user.id):
+        selected_mode[message.from_user.id] = "file"
+        await message.answer("📁 <b>Файл → конвертация</b>\n\nТеперь отправь аудио или видео как файл.", reply_markup=menu(message.from_user.id))
+
+@router.message(F.text == "📝 Расшифровка")
+async def select_transcribe_mode(message: Message):
+    if access.allowed(message.from_user.id):
+        selected_mode[message.from_user.id] = "transcribe"
+        await message.answer("📝 <b>Расшифровка</b>\n\nТеперь отправь голосовое, кружок, видео или аудио.", reply_markup=menu(message.from_user.id))
+
+@router.message(F.text == "👤 Профиль")
+async def profile(message: Message):
+    if not access.allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    uid = message.from_user.id
+    mode_labels = {"video":"🎥 Видео → кружок","photo":"🖼 Фото → кружок","audio":"🎵 Аудио → голосовое","file":"📁 Файл → конвертация","transcribe":"📝 Расшифровка"}
+    mode = mode_labels.get(selected_mode.get(uid), "Не выбрана")
+    q = {"economy":"Эконом","standard":"Стандарт","maximum":"Максимум"}.get(quality.get(uid, "maximum"), "Максимум")
+    role = "👑 Администратор" if access.admin(uid) else "👤 Пользователь"
+    await message.answer(f"👤 <b>Профиль</b>\n\n🆔 ID: <code>{uid}</code>\n{role}\n\n🎯 Функция: <b>{mode}</b>\n🎚 Качество: <b>{q}</b>\n🧹 Автоудаление: <b>включено</b>", reply_markup=menu(uid))
+
+@router.message(F.text == "⚙️ Настройки")
+async def settings_button(message: Message):
+    if not access.allowed(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    await message.answer("⚙️ <b>Настройки AVYX VS</b>\n\nВыбери нужный параметр:", reply_markup=settings_menu(message.from_user.id))
+
+@router.message(F.text == "👑 Админ-панель")
+async def admin_button(message: Message):
+    if not access.admin(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    await message.answer("👑 <b>Админ-панель AVYX VS</b>", reply_markup=admin_menu())
 
 @router.callback_query(F.data.startswith("mode:"))
 async def mode_select_callback(callback: CallbackQuery):
@@ -289,12 +343,9 @@ async def menu_help(callback: CallbackQuery):
 
 WELCOME = (
     "👋 <b>AVYX VS</b>\n\n"
-    "Отправь мне:\n"
-    "• 🎬 видео → видео-кружок\n"
-    "• 🖼 изображение → видео-кружок\n"
-    "• 🎵 аудио/музыку → голосовое сообщение\n"
-    "• 🎬 видео с аудио → голосовое сообщение\n\n"
-    "Файлы после обработки удаляются."
+    "Сначала выбери функцию в меню ниже, затем отправь соответствующий файл.\n\n"
+    "🔒 Без выбора функции файлы не обрабатываются.\n"
+    "🧹 Временные файлы после обработки удаляются."
 )
 
 @router.message(CommandStart())
