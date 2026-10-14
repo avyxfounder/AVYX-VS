@@ -36,13 +36,18 @@ class BotContent:
         self.load()
 
     def load(self):
+        legacy = False
         if self.path.exists():
             try:
                 loaded = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
+                    legacy = "schema_version" not in loaded
                     self.data.update(loaded)
             except Exception:
                 pass
+        if legacy:
+            self.data["public_access"] = True
+        self.data["schema_version"] = 2
         self.data.setdefault("welcome_text", DEFAULT_WELCOME)
         self.data.setdefault("welcome_media", self.data.get("bot_info_image"))
         self.data.setdefault("welcome_media_type", "photo" if self.data.get("bot_info_image") else None)
