@@ -8,6 +8,7 @@ from .config import Settings
 from .handlers import router
 from . import handlers
 from .access import AccessManager
+from .utils import cleanup_stale_jobs
 
 async def health(request: web.Request):
     return web.json_response({"status":"ok","service":"avyx-vs"})
@@ -24,6 +25,7 @@ async def main():
     settings=Settings.from_env()
     handlers.settings=settings
     handlers.access=AccessManager(settings.access_db,settings.owner_id)
+    cleanup_stale_jobs(settings.temp_dir)
     bot=Bot(token=settings.bot_token,default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp=Dispatcher(); dp.include_router(router)
     runner=await run_health_server()
