@@ -40,6 +40,8 @@ class PublicationManager:
             "created_at": int(time.time()),
             "pinned": False,
             "messages": [],
+            "publication_message_id": None,
+            "publication_chat_id": None,
         }
         self.data["next_news"] = item["id"] + 1
         self.data["news"].append(item)
