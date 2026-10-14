@@ -46,15 +46,29 @@ async def main():
     bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp.include_router(router)
-    runner = await run_health_server()
-    cleanup_task = asyncio.create_task(handlers.publications.cleanup_loop(bot))
-    logging.info("AVYX VS is starting...")
+
+    runner = None
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot)
+        try:
+            runner = await run_health_server()
+            logging.info("Health server started on port %s", os.getenv("PORT", "10000"))
+        except (OSError, ValueError) as exc:
+            logging.warning("Health server disabled: %s", exc)
+
+        cleanup_task = asyncio.create_task(handlers.publications.cleanup_loop(bot))
+        logging.info("AVYX VS is starting...")
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            await dp.start_polling(bot)
+        finally:
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
     finally:
-        cleanup_task.cancel()
-        await runner.cleanup()
+        if runner is not None:
+            await runner.cleanup()
         await bot.session.close()
 
 if __name__ == "__main__":
