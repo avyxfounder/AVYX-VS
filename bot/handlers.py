@@ -1,15 +1,96 @@
 from pathlib import Path
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.enums import ChatAction
 
 from .config import Settings
 from .media import MediaError, probe, duration_seconds, make_video_note, make_image_video_note, make_voice
 from .utils import new_job_dir, cleanup
+from .access import AccessManager
 
 router = Router()
 settings: Settings | None = None
+access: AccessManager | None = None
+
+
+
+def menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎥 Видео → кружок", callback_data="video_help")],
+        [InlineKeyboardButton(text="🖼 Фото → кружок", callback_data="photo_help")],
+        [InlineKeyboardButton(text="🎵 Аудио → голосовое", callback_data="audio_help")],
+        [InlineKeyboardButton(text="📁 Файл", callback_data="file_help")],
+        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_help")]
+    ])
+
+def admin_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Выдать доступ", callback_data="admin_add")],
+        [InlineKeyboardButton(text="➖ Забрать доступ", callback_data="admin_remove")],
+        [InlineKeyboardButton(text="🚫 Заблокировать", callback_data="admin_block")],
+        [InlineKeyboardButton(text="👑 Назначить админа", callback_data="admin_promote")],
+        [InlineKeyboardButton(text="📋 Пользователи", callback_data="admin_users")]
+    ])
+
+@router.message(Command("admin"))
+async def admin_cmd(message: Message):
+    if not access.admin(message.from_user.id):
+        return await message.answer("🔒 Доступ закрыт.")
+    await message.answer("👑 <b>Админ-панель AVYX VS</b>", reply_markup=admin_menu())
+
+@router.callback_query(F.data.startswith("admin_"))
+async def admin_callback(callback: CallbackQuery):
+    if not access.admin(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    await callback.answer()
+    if callback.data == "admin_users":
+        return await callback.message.answer("📋 Пользователи:\n" + ("\n".join(map(str, access.list_users())) or "Нет пользователей"))
+    prompts = {
+        "admin_add": "➕ Команда: <code>/add ID</code>",
+        "admin_remove": "➖ Команда: <code>/remove ID</code>",
+        "admin_block": "🚫 Команда: <code>/block ID</code>",
+        "admin_promote": "👑 Команда: <code>/promote ID</code>"
+    }
+    await callback.message.answer(prompts[callback.data])
+
+@router.message(F.text.regexp(r"^/add\s+\d+$"))
+async def add_user(message: Message):
+    if access.admin(message.from_user.id):
+        access.add(int(message.text.split()[1]))
+        await message.answer("✅ Доступ выдан.")
+
+@router.message(F.text.regexp(r"^/remove\s+\d+$"))
+async def remove_user(message: Message):
+    if access.admin(message.from_user.id):
+        access.remove(int(message.text.split()[1]))
+        await message.answer("✅ Доступ забран.")
+
+@router.message(F.text.regexp(r"^/block\s+\d+$"))
+async def block_user(message: Message):
+    if access.admin(message.from_user.id):
+        access.block(int(message.text.split()[1]))
+        await message.answer("🚫 Пользователь заблокирован.")
+
+@router.message(F.text.regexp(r"^/promote\s+\d+$"))
+async def promote_user(message: Message):
+    if access.admin(message.from_user.id):
+        access.promote(int(message.text.split()[1]))
+        await message.answer("👑 Админ назначен.")
+
+@router.callback_query(F.data.endswith("_help"))
+async def menu_help(callback: CallbackQuery):
+    if not access.allowed(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    await callback.answer()
+    texts = {
+        "video_help": "🎥 Отправь видео — получишь кружок.",
+        "photo_help": "🖼 Отправь фото — получишь кружок.",
+        "audio_help": "🎵 Отправь аудио — получишь голосовое.",
+        "file_help": "📁 Отправь аудио или видео как документ.",
+        "settings_help": "⚙️ Максимальное качество включено."
+    }
+    await callback.message.answer(texts[callback.data])
 
 WELCOME = (
     "👋 <b>AVYX VS</b>\n\n"
@@ -23,11 +104,13 @@ WELCOME = (
 
 @router.message(CommandStart())
 async def start(message: Message):
-    await message.answer(WELCOME)
+    if not access.allowed(message.from_user.id): return await message.answer('🔒 Доступ закрыт. Обратитесь к администратору AVYX VS.')
+    await message.answer(WELCOME, reply_markup=menu())
 
 @router.message(Command("help"))
 async def help_cmd(message: Message):
-    await message.answer(WELCOME)
+    if not access.allowed(message.from_user.id): return await message.answer('🔒 Доступ закрыт.')
+    await message.answer(WELCOME, reply_markup=menu())
 
 async def _download(bot, file_id: str, dst: Path):
     tg_file = await bot.get_file(file_id)
@@ -46,6 +129,7 @@ async def _error(message: Message, exc: Exception):
 
 @router.message(F.photo)
 async def photo(message: Message, bot):
+    if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
     job = new_job_dir(settings.temp_dir)
     try:
         await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO)
@@ -55,7 +139,7 @@ async def photo(message: Message, bot):
         await make_image_video_note(src, dst)
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
-        await message.answer_video_note(FSInputFile(dst), duration=2, length=512)
+        await message.answer_video_note(FSInputFile(dst), duration=2, length=1080)
     except Exception as exc:
         await _error(message, exc)
     finally:
@@ -63,6 +147,7 @@ async def photo(message: Message, bot):
 
 @router.message(F.video)
 async def video(message: Message, bot):
+    if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
     if message.video.file_size and message.video.file_size > settings.max_download_mb * 1024 * 1024:
         await message.answer("❌ Файл больше " + str(settings.max_download_mb) + " МБ. Для больших файлов позже подключим Local Bot API.")
         return
@@ -87,6 +172,7 @@ async def video(message: Message, bot):
 
 @router.message(F.audio)
 async def audio(message: Message, bot):
+    if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
     if message.audio.file_size and message.audio.file_size > settings.max_download_mb * 1024 * 1024:
         await message.answer("❌ Файл больше " + str(settings.max_download_mb) + " МБ.")
         return
@@ -107,6 +193,7 @@ async def audio(message: Message, bot):
 
 @router.message(F.document)
 async def document(message: Message, bot):
+    if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
     doc = message.document
     if doc.file_size and doc.file_size > settings.max_download_mb * 1024 * 1024:
         await message.answer("❌ Документ больше " + str(settings.max_download_mb) + " МБ.")
