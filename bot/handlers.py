@@ -12,16 +12,42 @@ from .access import AccessManager
 router = Router()
 settings: Settings | None = None
 access: AccessManager | None = None
+photo_duration: dict[int, int] = {}
 
 
 
 def menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎥 Видео → кружок", callback_data="video_help")],
-        [InlineKeyboardButton(text="🖼 Фото → кружок", callback_data="photo_help")],
+        [InlineKeyboardButton(text="🖼 Фото → кружок", callback_data="photo_settings")],
         [InlineKeyboardButton(text="🎵 Аудио → голосовое", callback_data="audio_help")],
-        [InlineKeyboardButton(text="📁 Файл", callback_data="file_help")],
-        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_help")]
+        [InlineKeyboardButton(text="📁 Файл → конвертация", callback_data="file_help")],
+        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings_menu")]
+    ])
+
+def back_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_menu")]
+    ])
+
+def photo_settings_menu(current: int):
+    values = [10, 20, 30, 40, 50, 60]
+    rows = []
+    for start in range(0, len(values), 3):
+        rows.append([
+            InlineKeyboardButton(text=(f"✅ {v} сек" if v == current else f"{v} сек"), callback_data=f"photo_duration:{v}")
+            for v in values[start:start + 3]
+        ])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def settings_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🖼 Длительность фото-кружка", callback_data="photo_settings")],
+        [InlineKeyboardButton(text="🎥 Лимит видео-кружка: 60 сек", callback_data="video_settings")],
+        [InlineKeyboardButton(text="🎚 Качество: максимальное", callback_data="quality_info")],
+        [InlineKeyboardButton(text="🧹 Автоудаление файлов: включено", callback_data="cleanup_info")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_menu")]
     ])
 
 def admin_menu():
@@ -78,19 +104,69 @@ async def promote_user(message: Message):
         access.promote(int(message.text.split()[1]))
         await message.answer("👑 Админ назначен.")
 
+@router.callback_query(F.data.startswith("photo_duration:"))
+async def photo_duration_callback(callback: CallbackQuery):
+    if not access.allowed(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    value = int(callback.data.split(":")[1])
+    photo_duration[callback.from_user.id] = value
+    await callback.answer(f"Установлено: {value} сек.")
+    await callback.message.edit_text(
+        "🖼 <b>Длительность фото-кружка</b>\n\nВыбери длительность от 10 секунд до 1 минуты.",
+        reply_markup=photo_settings_menu(value)
+    )
+
+@router.callback_query(F.data == "photo_settings")
+async def photo_settings_callback(callback: CallbackQuery):
+    if not access.allowed(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    await callback.answer()
+    current = photo_duration.get(callback.from_user.id, 10)
+    await callback.message.edit_text(
+        "🖼 <b>Длительность фото-кружка</b>\n\nСейчас: <b>" + str(current) + " сек</b>",
+        reply_markup=photo_settings_menu(current)
+    )
+
+@router.callback_query(F.data == "settings_menu")
+async def settings_callback(callback: CallbackQuery):
+    if not access.allowed(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    await callback.answer()
+    await callback.message.edit_text(
+        "⚙️ <b>Настройки AVYX VS</b>\n\nВыбери нужный параметр:",
+        reply_markup=settings_menu()
+    )
+
+@router.callback_query(F.data == "video_settings")
+async def video_settings_callback(callback: CallbackQuery):
+    await callback.answer("Видео-кружок: максимум 60 секунд.", show_alert=True)
+
+@router.callback_query(F.data == "quality_info")
+async def quality_callback(callback: CallbackQuery):
+    await callback.answer("Максимальное качество обработки включено.", show_alert=True)
+
+@router.callback_query(F.data == "cleanup_info")
+async def cleanup_callback(callback: CallbackQuery):
+    await callback.answer("Временные файлы удаляются после каждой операции.", show_alert=True)
+
+@router.callback_query(F.data == "back_menu")
+async def back_menu_callback(callback: CallbackQuery):
+    if not access.allowed(callback.from_user.id):
+        return await callback.answer("Доступ закрыт", show_alert=True)
+    await callback.answer()
+    await callback.message.edit_text(WELCOME, reply_markup=menu())
+
 @router.callback_query(F.data.endswith("_help"))
 async def menu_help(callback: CallbackQuery):
     if not access.allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
     texts = {
-        "video_help": "🎥 Отправь видео — получишь кружок.",
-        "photo_help": "🖼 Отправь фото — получишь кружок.",
-        "audio_help": "🎵 Отправь аудио — получишь голосовое.",
-        "file_help": "📁 Отправь аудио или видео как документ.",
-        "settings_help": "⚙️ Максимальное качество включено."
+        "video_help": "🎥 <b>Видео → кружок</b>\n\nОтправь обычное видео — бот сделает видео-кружок до 60 секунд.",
+        "audio_help": "🎵 <b>Аудио → голосовое</b>\n\nОтправь музыку или аудиофайл — бот конвертирует его в голосовое.",
+        "file_help": "📁 <b>Файл</b>\n\nОтправь аудио или видео как документ — бот определит формат автоматически."
     }
-    await callback.message.answer(texts[callback.data])
+    await callback.message.edit_text(texts[callback.data], reply_markup=back_menu())
 
 WELCOME = (
     "👋 <b>AVYX VS</b>\n\n"
@@ -159,11 +235,11 @@ async def photo(message: Message, bot):
         await _download(bot, message.photo[-1].file_id, src)
         await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
         await _status_update(status, "⚙️ <b>Создаю кружок</b>\n" + _progress_bar(50) + " 50%")
-        await make_image_video_note(src, dst)
+        await make_image_video_note(src, dst, duration=photo_duration.get(message.from_user.id, 10))
         await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
-        await message.answer_video_note(FSInputFile(dst), duration=2, length=1080)
+        await message.answer_video_note(FSInputFile(dst), duration=2, length=640)
         await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
