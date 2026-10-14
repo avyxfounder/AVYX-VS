@@ -48,7 +48,21 @@ def mode_menu(current: str | None = None):
 
 def mode_prompt(user_id: int):
     current = selected_mode.get(user_id)
-    return "🎯 <b>Выбери функцию</b>\n\nПосле выбора бот будет принимать только соответствующий тип файла.\n\n" + (f"Сейчас выбрано: <b>{current}</b>" if current else "Сейчас функция не выбрана.")
+    return "🎯 <b>Выбери функцию</b>\n\nПосле выбора бот принимает только соответствующий тип файлов.\n\n" + (f"Сейчас выбрано: <b>{current}</b>" if current else "Сейчас функция не выбрана.")
+
+def _selected(user_id: int, mode: str) -> bool:
+    return selected_mode.get(user_id) == mode
+
+async def _mode_required(message: Message, mode: str) -> bool:
+    if _selected(message.from_user.id, mode):
+        return True
+    current = selected_mode.get(message.from_user.id)
+    if current:
+        labels = {"video": "🎥 Видео → кружок", "photo": "🖼 Фото → кружок", "audio": "🎵 Аудио → голосовое", "file": "📁 Файл → конвертация", "transcribe": "📝 Расшифровка"}
+        await message.answer(f"🎯 Сейчас выбрана функция: <b>{labels.get(current, current)}</b>.\n\nДля другой операции сначала выбери нужную функцию в меню.", reply_markup=mode_menu(current))
+    else:
+        await message.answer("🎯 <b>Сначала выбери функцию.</b>\n\nБез выбора режима бот ничего не обрабатывает.", reply_markup=menu(message.from_user.id))
+    return False
 \ndef back_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_menu")]
@@ -101,11 +115,13 @@ async def mode_select_callback(callback: CallbackQuery):
         "file": "📁 <b>Файл → конвертация</b>\n\nТеперь отправь аудио или видео именно как файл.",
         "transcribe": "📝 <b>Расшифровка</b>\n\nТеперь отправь голосовое, кружок, видео или аудио — бот преобразует речь в текст.",
     }
-    await callback.message.edit_text(texts[mode], reply_markup=mode_menu(mode))
+    await callback.message.edit_text(texts[mode] + "\n\n🔒 Пока эта функция выбрана, другие типы файлов не обрабатываются.", reply_markup=mode_menu(mode))
 \n@router.message(Command("text"))
 async def text_command(message: Message, bot):
     if not access.allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
+    if not await _mode_required(message, "transcribe"):
+        return
     replied = message.reply_to_message
     if not replied:
         return await message.answer("📝 Ответь командой /text на голосовое, кружок или видео.")
@@ -329,6 +345,8 @@ async def _error(message: Message, exc: Exception):
 @router.message(F.photo)
 async def photo(message: Message, bot):
     if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not await _mode_required(message, "photo"):
+        return
     duration = photo_duration.get(message.from_user.id, 10)
     q = quality.get(message.from_user.id, "maximum")
     status = await _status(message, "⏳ <b>Подготовка</b>\n" + _progress_bar(5) + " 5%")
@@ -356,6 +374,8 @@ async def photo(message: Message, bot):
 @router.message(F.video)
 async def video(message: Message, bot):
     if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not await _mode_required(message, "video"):
+        return
     if message.video.file_size and message.video.file_size > settings.max_download_mb * 1024 * 1024:
         await message.answer("❌ Файл больше " + str(settings.max_download_mb) + " МБ. Для больших файлов позже подключим Local Bot API.")
         return
@@ -389,6 +409,8 @@ async def video(message: Message, bot):
 @router.message(F.audio)
 async def audio(message: Message, bot):
     if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not await _mode_required(message, "audio"):
+        return
     if message.audio.file_size and message.audio.file_size > settings.max_download_mb * 1024 * 1024:
         await message.answer("❌ Файл больше " + str(settings.max_download_mb) + " МБ.")
         return
@@ -417,6 +439,8 @@ async def audio(message: Message, bot):
 @router.message(F.document)
 async def document(message: Message, bot):
     if not access.allowed(message.from_user.id): return await message.answer("🔒 Доступ закрыт.")
+    if not await _mode_required(message, "file"):
+        return
     doc = message.document
     if doc.file_size and doc.file_size > settings.max_download_mb * 1024 * 1024:
         await message.answer("❌ Документ больше " + str(settings.max_download_mb) + " МБ.")
@@ -470,6 +494,8 @@ async def document(message: Message, bot):
 async def _transcribe_message(message: Message, bot, file_id: str, filename: str):
     if not access.allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
+    if not await _mode_required(message, "transcribe"):
+        return
     if getattr(message, "voice", None) and message.voice.file_size and message.voice.file_size > settings.max_download_mb * 1024 * 1024:
         return await message.answer(f"❌ Файл больше {settings.max_download_mb} МБ.")
     status = await _status(message, "📝 <b>Подготовка расшифровки</b>\n" + _progress_bar(10) + " 10%")
