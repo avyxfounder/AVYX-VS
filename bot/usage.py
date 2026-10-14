@@ -63,6 +63,19 @@ class UsageManager:
         user["subscription_until"] = max(int(user.get("subscription_until", 0)), int(until_ts))
         self.save()
 
+    def grant_subscription(self, user_id: int, seconds: int):
+        user = self.ensure_user(user_id)
+        now = int(time.time())
+        base = max(now, int(user.get("subscription_until", 0)))
+        user["subscription_until"] = base + max(0, int(seconds))
+        self.save()
+        return int(user["subscription_until"])
+
+    def revoke_subscription(self, user_id: int):
+        user = self.ensure_user(user_id)
+        user["subscription_until"] = 0
+        self.save()
+
     def remaining(self, user_id: int) -> str:
         if self.is_subscribed(user_id):
             return "∞"
