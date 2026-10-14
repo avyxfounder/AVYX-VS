@@ -1,5 +1,4 @@
 import asyncio
-import json
 import re
 import shutil
 from pathlib import Path
@@ -29,42 +28,29 @@ def _ffmpeg_bin() -> str:
 
 async def run_ffmpeg(*args: str, progress: ProgressCallback | None = None):
     proc = await asyncio.create_subprocess_exec(
-        _ffmpeg_bin(),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        _ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-y", *args,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
     _, err = await proc.communicate()
     if proc.returncode:
-        raise MediaError(err.decode("utf-8", errors="replace").strip() or "FFmpeg failed")
+        details = err.decode("utf-8", errors="replace").strip()
+        raise MediaError(details or "Не удалось обработать файл.")
 
 
 async def probe(path: Path) -> dict:
-    # FFmpeg is used for probing too, so a separate ffprobe binary is not required.
     proc = await asyncio.create_subprocess_exec(
-        _ffmpeg_bin(),
-        "-hide_banner",
-        "-i",
-        str(path),
-        "-f",
-        "null",
-        "-",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        _ffmpeg_bin(), "-hide_banner", "-i", str(path), "-f", "null", "-",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )
     _, err = await proc.communicate()
     text = err.decode("utf-8", errors="replace")
     match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
     duration = 0.0
     if match:
-        hours, minutes, seconds = match.groups()
-        duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+        h, m, s = match.groups()
+        duration = int(h) * 3600 + int(m) * 60 + float(s)
     if proc.returncode and duration <= 0:
-        raise MediaError(text.strip() or "Не удалось определить длительность файла.")
+        raise MediaError("Не удалось прочитать видео. Проверьте файл.")
     return {"format": {"duration": duration}}
 
 
@@ -75,45 +61,33 @@ def duration_seconds(info: dict) -> float:
         return 0.0
 
 
-async def make_video_note(src: Path, dst: Path):
+def _crf(quality: str) -> int:
+    return {"economy": 28, "standard": 23, "maximum": 18}.get(quality, 18)
+
+
+async def make_video_note(src: Path, dst: Path, quality: str = "maximum"):
     await run_ffmpeg(
-        "-i", str(src),
-        "-t", "60",
+        "-i", str(src), "-t", "60",
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
-        "-an",
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        str(dst),
+        "-an", "-c:v", "libx264", "-preset", "medium",
+        "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart", str(dst),
     )
 
 
-async def make_image_video_note(src: Path, dst: Path, duration: int = 10):
+async def make_image_video_note(src: Path, dst: Path, duration: int = 10, quality: str = "maximum"):
     await run_ffmpeg(
-        "-loop", "1",
-        "-i", str(src),
-        "-t", str(max(10, min(60, duration))),
+        "-loop", "1", "-i", str(src), "-t", str(max(10, min(60, duration))),
         "-vf", "scale=640:640:force_original_aspect_ratio=increase,crop=640:640,setsar=1",
-        "-an",
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        str(dst),
+        "-an", "-c:v", "libx264", "-preset", "medium",
+        "-crf", str(_crf(quality)), "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart", str(dst),
     )
 
 
 async def make_voice(src: Path, dst: Path):
     await run_ffmpeg(
-        "-i", str(src),
-        "-vn",
-        "-map_metadata", "-1",
-        "-c:a", "libopus",
-        "-b:a", "128k",
-        "-vbr", "on",
-        "-compression_level", "10",
-        str(dst),
+        "-i", str(src), "-vn", "-map_metadata", "-1",
+        "-c:a", "libopus", "-b:a", "128k", "-vbr", "on",
+        "-compression_level", "10", str(dst),
     )
