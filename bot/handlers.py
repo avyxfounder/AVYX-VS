@@ -139,7 +139,7 @@ async def settings_callback(callback: CallbackQuery):
     await callback.answer()
     await callback.message.edit_text(
         "⚙️ <b>Настройки AVYX VS</b>\n\nВыбери нужный параметр:",
-        reply_markup=settings_menu()
+        reply_markup=settings_menu(callback.from_user.id)
     )
 
 @router.callback_query(F.data == "quality_settings")
@@ -202,7 +202,7 @@ async def back_menu_callback(callback: CallbackQuery):
     if not access.allowed(callback.from_user.id):
         return await callback.answer("Доступ закрыт", show_alert=True)
     await callback.answer()
-    await callback.message.edit_text(WELCOME, reply_markup=menu(message.from_user.id))
+    await callback.message.edit_text(WELCOME, reply_markup=menu(callback.from_user.id))
 
 @router.callback_query(F.data.endswith("_help"))
 async def menu_help(callback: CallbackQuery):
@@ -286,6 +286,7 @@ async def photo(message: Message, bot):
         await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
         await _status_update(status, "⚙️ <b>Создаю кружок</b>\n" + _progress_bar(50) + " 50%")
         await make_image_video_note(src, dst, duration=duration, quality=q)
+        src.unlink(missing_ok=True)
         await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
@@ -316,11 +317,13 @@ async def video(message: Message, bot):
             raise MediaError("Видео-кружок ограничен примерно 60 секундами.")
         await _status_update(status, "⚙️ <b>Конвертирую видео</b>\n" + _progress_bar(50) + " 50%")
         await make_video_note(src, dst, quality=quality.get(message.from_user.id, "maximum"))
+        src.unlink(missing_ok=True)
         await _status_update(status, "📦 <b>Обработка завершена</b>\n" + _progress_bar(90) + " 90%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
         await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
         await message.answer_video_note(FSInputFile(dst), duration=max(1, min(60, round(duration))), length=640)
+        dst.unlink(missing_ok=True)
         await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
@@ -343,10 +346,12 @@ async def audio(message: Message, bot):
         await _status_update(status, "📥 <b>Файл получен</b>\n" + _progress_bar(25) + " 25%")
         await _status_update(status, "🎵 <b>Создаю голосовое</b>\n" + _progress_bar(50) + " 50%")
         await make_voice(src, dst)
+        src.unlink(missing_ok=True)
         await _status_update(status, "📤 <b>Отправляю результат</b>\n" + _progress_bar(95) + " 95%")
         if _too_large(dst):
             raise MediaError("Результат больше лимита отправки.")
         await message.answer_voice(FSInputFile(dst))
+        dst.unlink(missing_ok=True)
         await _status_update(status, "✅ <b>Готово</b>\n" + _progress_bar(100) + " 100%")
     except Exception as exc:
         await _error(message, exc)
@@ -363,7 +368,7 @@ async def document(message: Message, bot):
     name = (doc.file_name or "").lower()
     audio_ext = (".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".wma")
     video_ext = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".mpeg", ".mpg")
-    if not name.endswith(audio_ext) or name.endswith(video_ext):
+    if not name.endswith(audio_ext) and not name.endswith(video_ext):
         await message.answer("📎 Поддерживаются аудио/видео файлы. Отправь их как документ.")
         return
 
