@@ -39,6 +39,16 @@ admin_state: dict[int, str] = {}
 user_state: dict[int, str] = {}
 drafts: dict[int, dict] = {}
 
+# Очередь обработки: одновременно выполняется только одна тяжёлая задача.
+PROCESSING_LIMIT = 1
+MAX_USER_QUEUE = 2
+MAX_QUEUE_WAITERS = 8
+SPAM_COOLDOWN_SECONDS = 2.0
+_processing_queue = asyncio.Semaphore(PROCESSING_LIMIT)
+_queue_waiters = 0
+_user_queue: dict[int, int] = {}
+_last_request_at: dict[int, float] = {}
+
 WELCOME = DEFAULT_WELCOME
 
 MODES = {
@@ -194,19 +204,62 @@ async def _require_mode(message: Message, mode: str):
     return False
 
 async def _reserve(message: Message) -> bool:
+    global _queue_waiters
     uid = message.from_user.id
-    if _is_admin(uid):
-        return True
-    if not usage.can_use(uid):
-        await message.answer(
-            "⛔ Бесплатное использование закончилось.\n\n"
-            f"🤝 За одного реферала вы получите +{REFERRAL_BONUS_USES} использований.\n"
-            "⭐ Или подключите подписку без лимита."
-        )
+    now = time.monotonic()
+
+    # Антиспам: один пользователь не может запускать тяжёлые задачи чаще раза в 2 сек.
+    last = _last_request_at.get(uid, 0.0)
+    if now - last < SPAM_COOLDOWN_SECONDS:
+        wait = max(1, int(SPAM_COOLDOWN_SECONDS - (now - last) + 0.99))
+        await message.answer(f"🛡 Не так быстро. Повторите через {wait} сек.")
         return False
-    if not usage.consume(uid):
+
+    # Не позволяем одному пользователю забить всю очередь.
+    current = _user_queue.get(uid, 0)
+    if current >= MAX_USER_QUEUE:
+        await message.answer("🛡 У вас уже есть запросы в очереди. Дождитесь их завершения.")
         return False
+
+    if _queue_waiters >= MAX_QUEUE_WAITERS and _processing_queue.locked():
+        await message.answer("⏳ Очередь сейчас переполнена. Попробуйте немного позже.")
+        return False
+
+    _last_request_at[uid] = now
+    _user_queue[uid] = current + 1
+    queued = _processing_queue.locked()
+    if queued:
+        await message.answer("⏳ Запрос поставлен в очередь. Начну обработку автоматически.")
+
+    _queue_waiters += 1
+    try:
+        await _processing_queue.acquire()
+    except asyncio.CancelledError:
+        _queue_waiters -= 1
+        _user_queue[uid] = max(0, _user_queue.get(uid, 1) - 1)
+        raise
+    _queue_waiters -= 1
+
+    # Расходуем использование только когда запрос реально начал обработку.
+    if not _is_admin(uid):
+        if not usage.can_use(uid) or not usage.consume(uid):
+            _processing_queue.release()
+            _user_queue[uid] = max(0, _user_queue.get(uid, 1) - 1)
+            if _user_queue.get(uid) == 0:
+                _user_queue.pop(uid, None)
+            await message.answer(
+                "⛔ Бесплатное использование закончилось.\n\n"
+                f"🤝 За одного реферала вы получите +{REFERRAL_BONUS_USES} использования.\n"
+                "⭐ Или подключите подписку без лимита."
+            )
+            return False
     return True
+
+async def _release_processing(user_id: int):
+    _user_queue[user_id] = max(0, _user_queue.get(user_id, 1) - 1)
+    if _user_queue.get(user_id) == 0:
+        _user_queue.pop(user_id, None)
+    _processing_queue.release()
 
 async def _refund_if_needed(user_id: int, reserved: bool):
     if reserved and not _is_admin(user_id):
@@ -1093,6 +1146,7 @@ async def photo_handler(message: Message, bot):
         await _refund_if_needed(message.from_user.id, reserved)
         await _error(message, exc)
     finally:
+        await _release_processing(message.from_user.id)
         cleanup(job)
 
 @router.message(F.video)
@@ -1141,6 +1195,7 @@ async def _video_to_circle(message: Message, bot, file_id: str):
         await _refund_if_needed(message.from_user.id, reserved)
         await _error(message, exc)
     finally:
+        await _release_processing(message.from_user.id)
         cleanup(job)
 
 async def _media_to_mp3(message: Message, bot, file_id: str, filename: str):
@@ -1166,6 +1221,7 @@ async def _media_to_mp3(message: Message, bot, file_id: str, filename: str):
         await _refund_if_needed(message.from_user.id, reserved)
         await _error(message, exc)
     finally:
+        await _release_processing(message.from_user.id)
         cleanup(job)
 
 async def _circle_to_voice(message: Message, bot):
@@ -1190,6 +1246,7 @@ async def _circle_to_voice(message: Message, bot):
         await _refund_if_needed(message.from_user.id, reserved)
         await _error(message, exc)
     finally:
+        await _release_processing(message.from_user.id)
         cleanup(job)
 
 @router.message(F.document)
@@ -1239,6 +1296,7 @@ async def _audio_document_to_voice(message: Message, bot):
         await _refund_if_needed(message.from_user.id, reserved)
         await _error(message, exc)
     finally:
+        await _release_processing(message.from_user.id)
         cleanup(job)
 
 @router.message(F.audio)
@@ -1334,6 +1392,7 @@ async def _transcribe_message(message: Message, bot, file_id: str, filename: str
         await _refund_if_needed(message.from_user.id, reserved)
         await _error(message, exc)
     finally:
+        await _release_processing(message.from_user.id)
         cleanup(job)
 
 async def _handle_admin_input(message: Message):
@@ -1488,6 +1547,7 @@ async def _audio_document_to_voice(message: Message, bot):
         await _refund_if_needed(message.from_user.id, reserved)
         await _error(message, exc)
     finally:
+        await _release_processing(message.from_user.id)
         cleanup(job)
 
 @router.message(F.document)
