@@ -418,24 +418,6 @@ async def _handle_user_state(message: Message, bot):
             [InlineKeyboardButton(text=f"7 дней — {billing.ad_price(604800)} ⭐", callback_data="ad_duration:604800")],
         ]))
         return True
-    if state.startswith("news_buttons:") and _is_admin(uid):
-        news_id = int(state.split(":")[1])
-        item = publications.get_news(news_id)
-        if not item: return True
-        item["buttons"] = _parse_buttons(message.text or "")
-        publications.save()
-        admin_state[uid] = f"news_pin:{news_id}"
-        await message.answer("📰 Сделать новость внутренним закрепом?", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📌 Да, закрепить", callback_data=f"news_pin:{news_id}:yes")],
-            [InlineKeyboardButton(text="Без закрепа", callback_data=f"news_pin:{news_id}:no")],
-        ]))
-        return True
-    if state == "news_message" and _is_admin(uid):
-        media_type, file_id, text = _extract_media(message)
-        item = publications.create_news(text, media_type, file_id, [])
-        admin_state[uid] = f"news_buttons:{item['id']}"
-        await message.answer("🔘 Кнопки новости (необязательно). Формат: <code>Название | https://ссылка</code>\nДо 8 кнопок. Если не нужны — отправьте <code>-</code>.")
-        return True
     return False
 
 async def _broadcast(bot, user_ids, text, media_type=None, file_id=None, buttons=None):
@@ -998,7 +980,7 @@ async def admin_callback(callback: CallbackQuery):
         return await callback.message.answer("Отправьте новый текст приветствия.")
     if data == "admin_welcome_media":
         admin_state[uid] = "welcome_media"
-        return await callback.message.answer("Отправьте фото, видео или GIF. Для фото нужен размер 640×360.")
+        return await callback.message.answer("Отправьте фото, видео или GIF. Размер фото может быть любым.")
     if data == "admin_welcome_media_clear":
         content.set_welcome_media(None, None)
         return await callback.message.answer("✅ Медиа приветствия удалено.", reply_markup=admin_menu())
@@ -1019,7 +1001,7 @@ async def admin_callback(callback: CallbackQuery):
             "ℹ️ <b>Информация о боте</b>",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✏️ Текст", callback_data="admin_info_text")],
-                [InlineKeyboardButton(text="🖼 Картинка 640×360", callback_data="admin_info_image")],
+                [InlineKeyboardButton(text="🖼 Картинка", callback_data="admin_info_image")],
                 [InlineKeyboardButton(text="🗑 Удалить картинку", callback_data="admin_info_image_clear")],
                 [InlineKeyboardButton(text="⬅️ Админка", callback_data="admin_back")]
             ])
@@ -1029,7 +1011,7 @@ async def admin_callback(callback: CallbackQuery):
         return await callback.message.answer("Отправьте новый текст.")
     if data == "admin_info_image":
         admin_state[uid] = "bot_info_image"
-        return await callback.message.answer("Отправьте фото ровно 640×360.")
+        return await callback.message.answer("Отправьте фото любого подходящего размера.")
     if data == "admin_info_image_clear":
         content.set_bot_info_image(None)
         return await callback.message.answer("✅ Картинка удалена.", reply_markup=admin_menu())
@@ -1042,6 +1024,8 @@ async def admin_callback(callback: CallbackQuery):
         return await callback.message.edit_text("📰 <b>Новости</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     if data == "admin_news_create":
         admin_state[uid] = "news_message"
+        user_state.pop(uid, None)
+        drafts.pop(uid, None)
         return await callback.message.answer("Отправьте новость одним сообщением: текст или фото/видео/GIF с подписью.")
     if data == "admin_ads":
         pending = publications.pending_ads()
@@ -1115,9 +1099,9 @@ async def promote_user(message: Message):
 async def photo_handler(message: Message, bot):
     if _admin_reply_ticket(message):
         return await _handle_admin_ticket_reply(message, bot)
-    if await _handle_user_state(message, bot):
-        return
     if _is_admin(message.from_user.id) and await _handle_admin_input(message):
+        return
+    if await _handle_user_state(message, bot):
         return
     if not _allowed(message.from_user.id):
         return await message.answer("🔒 Доступ закрыт.")
@@ -1438,9 +1422,6 @@ async def _handle_admin_input(message: Message):
             await message.answer("Нужно фото, видео или GIF.")
             return True
         photo = message.photo[-1]
-        if photo.width != 640 or photo.height != 360:
-            await message.answer(f"❌ Размер фото должен быть 640×360. Сейчас {photo.width}×{photo.height}.")
-            return True
         if state == "welcome_media":
             content.set_welcome_media("photo", file_id)
         elif state == "referral_media":
