@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_FREE_USES = 1
-REFERRAL_BONUS_USES = 10
+REFERRAL_BONUS_USES = 2
 SUPPORT_DAILY_LIMIT = 3
 
 class UsageManager:
